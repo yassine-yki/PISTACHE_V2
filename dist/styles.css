@@ -215,28 +215,51 @@ h1 { font-size: 20px; line-height: 1.2; }
   top: 0;
   width: calc(100% - 32px);
   min-width: 0;
-  aspect-ratio: 1.676;
+  aspect-ratio: var(--plan-aspect, 1.676);
   background: white;
   box-shadow: 0 3px 18px rgba(25, 40, 34, .13);
   transform-origin: top left;
   will-change: transform;
 }
 
-.plan-image-crop {
+.plan-empty {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  font-weight: 650;
+}
+
+.plan-empty[hidden] { display: none; }
+
+.dxf-plan {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
   background: white;
 }
 
-.plan-image-crop > img {
-  position: absolute;
-  left: -24.46%;
-  top: -4.55%;
-  display: block;
-  width: 143.89%;
-  height: 113.64%;
-  user-select: none;
+.dxf-plan:empty { display: none; }
+.dxf-line { vector-effect: non-scaling-stroke; stroke: #71807a; stroke-width: .35; fill: none; }
+.dxf-detail { vector-effect: non-scaling-stroke; stroke: #a7b0ac; stroke-width: .22; fill: none; }
+.dxf-zone { vector-effect: non-scaling-stroke; stroke-width: 1.1; fill-opacity: .28; cursor: pointer; transition: fill-opacity .15s ease, stroke-width .15s ease; }
+.dxf-zone:hover, .dxf-zone.selected { stroke-width: 2; fill-opacity: .5; }
+.dxf-zone.status-not-started { fill: #c94043; stroke: #9e292c; }
+.dxf-zone.status-in-progress { fill: #e38b22; stroke: #a75e0d; }
+.dxf-zone.status-done { fill: #16835d; stroke: #0e5e43; }
+.dxf-zone.status-blocked { fill: #8f334e; stroke: #672037; }
+.dxf-label {
+  fill: #17221f;
+  paint-order: stroke;
+  stroke: white;
+  stroke-width: .12;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-weight: 800;
   pointer-events: none;
 }
 

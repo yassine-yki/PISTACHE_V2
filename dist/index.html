@@ -19,8 +19,8 @@
       </div>
       <div class="top-actions">
         <label class="button secondary import-button">
-          Importer DWG
-          <input id="dwgInput" type="file" accept=".dwg,.dxf" />
+          Importer DXF
+          <input id="dwgInput" type="file" accept=".dxf" />
         </label>
         <span class="import-status" id="importStatus"></span>
         <span class="save-state" id="saveState">Enregistré sur cet appareil</span>
@@ -80,9 +80,8 @@
 
         <div class="plan-viewport" id="planViewport">
           <div class="plan-content" id="planContent">
-            <div class="plan-image-crop">
-              <img src="/assets/plan-r2.png" alt="Plan architectural recadré du niveau R+2" />
-            </div>
+            <div class="plan-empty" id="planEmpty">Importez le plan DXF pour commencer.</div>
+            <svg class="dxf-plan" id="dxfPlan" role="img" aria-label="Plan architectural importé depuis le fichier DXF"></svg>
           </div>
         </div>
       </section>
@@ -156,6 +155,7 @@
       </aside>
     </main>
 
+    <script src="/vendor/dxf-parser.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

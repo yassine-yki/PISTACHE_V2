@@ -18,7 +18,7 @@ const tasksByZone = {
   loggia: [],
 };
 
-const rooms = Array.from({ length: 40 }, (_, index) => ({ number: 201 + index }));
+let rooms = Array.from({ length: 40 }, (_, index) => ({ number: 201 + index }));
 const juniorRooms = new Set([203, 206, 209, 210, 212, 217, 227, 235]);
 const executiveRooms = new Set([214]);
 const loggiaRooms = new Set([203, 206, 209, 210, 212, 214, 217, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236]);
@@ -31,12 +31,17 @@ const state = {
   zoom: 100,
   panX: 16,
   panY: 16,
+  planAspect: 1.676,
+  dxfModel: null,
+  importedTypes: {},
   records: loadRecords(),
 };
 
 const elements = {
   planContent: document.querySelector("#planContent"),
   planViewport: document.querySelector("#planViewport"),
+  dxfPlan: document.querySelector("#dxfPlan"),
+  planEmpty: document.querySelector("#planEmpty"),
   roomSelect: document.querySelector("#roomSelect"),
   dwgInput: document.querySelector("#dwgInput"),
   importStatus: document.querySelector("#importStatus"),
@@ -58,6 +63,183 @@ const elements = {
   zoomValue: document.querySelector("#zoomValue"),
   saveState: document.querySelector("#saveState"),
 };
+
+function normalizedLayer(name) {
+  return String(name || "").trim().toUpperCase();
+}
+
+function cleanDxfText(value) {
+  return String(value || "")
+    .replace(/\\P/g, " ")
+    .replace(/\\[A-Za-z][^;]*;/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function entityPoint(entity) {
+  return entity.position || entity.startPoint || entity.vertices?.[0] || null;
+}
+
+function isPolygon(entity) {
+  if (!["LWPOLYLINE", "POLYLINE"].includes(entity.type) || !entity.vertices?.length) return false;
+  if (entity.shape) return true;
+  const first = entity.vertices[0];
+  const last = entity.vertices.at(-1);
+  return Math.hypot(first.x - last.x, first.y - last.y) < 0.05;
+}
+
+function pointInPolygon(point, vertices) {
+  let inside = false;
+  for (let index = 0, previous = vertices.length - 1; index < vertices.length; previous = index, index += 1) {
+    const currentPoint = vertices[index];
+    const previousPoint = vertices[previous];
+    const crosses = (currentPoint.y > point.y) !== (previousPoint.y > point.y)
+      && point.x < ((previousPoint.x - currentPoint.x) * (point.y - currentPoint.y)) / (previousPoint.y - currentPoint.y) + currentPoint.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonCenter(vertices) {
+  return vertices.reduce((center, point) => ({ x: center.x + point.x / vertices.length, y: center.y + point.y / vertices.length }), { x: 0, y: 0 });
+}
+
+function boundsFromPoints(points) {
+  return {
+    minX: Math.min(...points.map((point) => point.x)),
+    maxX: Math.max(...points.map((point) => point.x)),
+    minY: Math.min(...points.map((point) => point.y)),
+    maxY: Math.max(...points.map((point) => point.y)),
+  };
+}
+
+function entityBounds(entity) {
+  if (entity.vertices?.length) return boundsFromPoints(entity.vertices);
+  if (entity.controlPoints?.length) return boundsFromPoints(entity.controlPoints);
+  if (entity.center && Number.isFinite(entity.radius)) {
+    return { minX: entity.center.x - entity.radius, maxX: entity.center.x + entity.radius, minY: entity.center.y - entity.radius, maxY: entity.center.y + entity.radius };
+  }
+  return null;
+}
+
+function boundsIntersect(first, second) {
+  return first && first.maxX >= second.minX && first.minX <= second.maxX && first.maxY >= second.minY && first.minY <= second.maxY;
+}
+
+function numberValue(value) {
+  return Number(value).toFixed(4).replace(/\.0+$/, "");
+}
+
+function pointsPath(points, close = false) {
+  if (!points?.length) return "";
+  return `M ${points.map((point) => `${numberValue(point.x)} ${numberValue(point.y)}`).join(" L ")}${close ? " Z" : ""}`;
+}
+
+function curvedPoints(entity) {
+  const start = entity.type === "CIRCLE" ? 0 : entity.startAngle || 0;
+  let length = entity.type === "CIRCLE" ? Math.PI * 2 : entity.angleLength;
+  if (!Number.isFinite(length) || length <= 0) length += Math.PI * 2;
+  const segments = Math.max(12, Math.ceil(Math.abs(length) / (Math.PI / 18)));
+  return Array.from({ length: segments + 1 }, (_, index) => {
+    const angle = start + length * index / segments;
+    return { x: entity.center.x + Math.cos(angle) * entity.radius, y: entity.center.y + Math.sin(angle) * entity.radius };
+  });
+}
+
+function entitySvg(entity, detailBounds) {
+  if (entity.inPaperSpace || !boundsIntersect(entityBounds(entity), detailBounds)) return "";
+  if (entity.type === "LINE") return `<path class="dxf-detail" d="${pointsPath(entity.vertices)}" />`;
+  if (["LWPOLYLINE", "POLYLINE"].includes(entity.type)) return `<path class="dxf-detail" d="${pointsPath(entity.vertices, entity.shape)}" />`;
+  if (["ARC", "CIRCLE"].includes(entity.type) && entity.center) return `<path class="dxf-detail" d="${pointsPath(curvedPoints(entity), entity.type === "CIRCLE")}" />`;
+  if (entity.type === "SPLINE" && entity.controlPoints?.length) return `<path class="dxf-detail" d="${pointsPath(entity.controlPoints)}" />`;
+  return "";
+}
+
+function buildDxfModel(dxf) {
+  const entities = (dxf.entities || []).filter((entity) => !entity.inPaperSpace);
+  const roomShapes = entities.filter((entity) => normalizedLayer(entity.layer) === "CHAMBRE" && isPolygon(entity));
+  if (!roomShapes.length) throw new Error("Aucun contour fermé trouvé sur le calque Chambre");
+
+  const allRoomPoints = roomShapes.flatMap((entity) => entity.vertices);
+  const rawBounds = boundsFromPoints(allRoomPoints);
+  const width = rawBounds.maxX - rawBounds.minX;
+  const height = rawBounds.maxY - rawBounds.minY;
+  const padding = Math.max(1.5, Math.min(width, height) * 0.16);
+  const detailBounds = {
+    minX: rawBounds.minX - padding,
+    maxX: rawBounds.maxX + padding,
+    minY: rawBounds.minY - padding,
+    maxY: rawBounds.maxY + padding,
+  };
+
+  const textEntities = entities
+    .filter((entity) => normalizedLayer(entity.layer) === "A-AREA-IDEN" && ["TEXT", "MTEXT"].includes(entity.type))
+    .map((entity) => ({ ...entity, point: entityPoint(entity), cleanText: cleanDxfText(entity.text) }))
+    .filter((entity) => entity.point);
+  const bathrooms = entities.filter((entity) => normalizedLayer(entity.layer) === "SDB" && isPolygon(entity));
+  const loggias = entities.filter((entity) => normalizedLayer(entity.layer) === "LOGGIA" && isPolygon(entity));
+
+  const detectedRooms = roomShapes.map((entity) => {
+    const insideTexts = textEntities.filter((text) => pointInPolygon(text.point, entity.vertices));
+    const numberText = insideTexts.find((text) => /CHAMBRE\s*[-:]?\s*\d{3}/i.test(text.cleanText));
+    const match = numberText?.cleanText.match(/CHAMBRE\s*[-:]?\s*(\d{3})/i);
+    if (!match) return null;
+    const number = Number(match[1]);
+    const typeText = insideTexts.find((text) => /STANDARD|JUNIOR|EXECUTIVE|EXÉCUTIVE|SUITE/i.test(text.cleanText));
+    return {
+      number,
+      typeText: typeText?.cleanText || "",
+      polygon: entity.vertices,
+      center: polygonCenter(entity.vertices),
+      labelPoint: numberText.point,
+      bathrooms: bathrooms.filter((shape) => pointInPolygon(polygonCenter(shape.vertices), entity.vertices)).map((shape) => shape.vertices),
+      loggias: loggias.filter((shape) => pointInPolygon(polygonCenter(shape.vertices), entity.vertices)).map((shape) => shape.vertices),
+    };
+  }).filter(Boolean).sort((first, second) => first.number - second.number);
+
+  if (!detectedRooms.length) throw new Error("Aucun numéro CHAMBRE xxx trouvé dans A-AREA-IDEN");
+
+  const architecture = entities.map((entity) => entitySvg(entity, detailBounds)).join("");
+  return { dxf, rooms: detectedRooms, bounds: detailBounds, architecture };
+}
+
+function renderDxfBase() {
+  const model = state.dxfModel;
+  if (!model) return;
+  const width = model.bounds.maxX - model.bounds.minX;
+  const height = model.bounds.maxY - model.bounds.minY;
+  state.planAspect = width / height;
+  elements.planContent.style.setProperty("--plan-aspect", state.planAspect);
+  elements.dxfPlan.setAttribute("viewBox", `${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}`);
+  const labelSize = Math.max(0.38, height * 0.025);
+  const labels = model.rooms.map((room) => `<text class="dxf-label" x="${numberValue(room.labelPoint.x)}" y="${numberValue(-room.labelPoint.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>`).join("");
+  elements.dxfPlan.innerHTML = `<g transform="scale(1 -1)">${model.architecture}</g><g id="dxfZoneLayer" transform="scale(1 -1)"></g><g>${labels}</g>`;
+  elements.planEmpty.hidden = true;
+}
+
+function statusClass(record) {
+  if (record.blocked) return "status-blocked";
+  if (record.progress >= 100) return "status-done";
+  if (record.progress > 0) return "status-in-progress";
+  return "status-not-started";
+}
+
+function renderDxfZones() {
+  const model = state.dxfModel;
+  const layer = document.querySelector("#dxfZoneLayer");
+  if (!model || !layer) return;
+  layer.innerHTML = model.rooms.map((room) => {
+    const task = state.selectedTask || currentTasks()[0]?.id;
+    const record = task ? getRecord(room.number, state.selectedZone, task) : { progress: 0, blocked: false };
+    const activeClass = room.number === state.selectedRoom ? " selected" : "";
+    let paths = [];
+    if (state.selectedZone === "bathroom") paths = room.bathrooms.map((polygon) => pointsPath(polygon, true));
+    if (state.selectedZone === "loggia") paths = room.loggias.map((polygon) => pointsPath(polygon, true));
+    if (state.selectedZone === "bedroom") paths = [`${pointsPath(room.polygon, true)} ${[...room.bathrooms, ...room.loggias].map((polygon) => pointsPath(polygon, true)).join(" ")}`];
+    return paths.map((path) => `<path class="dxf-zone ${statusClass(record)}${activeClass}" data-room="${room.number}" d="${path}" fill-rule="evenodd"><title>Chambre ${room.number}</title></path>`).join("");
+  }).join("");
+}
 
 function loadRecords() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
@@ -89,9 +271,14 @@ function updateProgress(value) {
   window.setTimeout(() => { elements.saveState.textContent = "Enregistré sur cet appareil"; }, 1400);
   renderSummary();
   renderTaskList();
+  renderDxfZones();
 }
 
 function roomTypeId(number) {
+  const importedType = state.importedTypes[number] || "";
+  if (/EXECUTIVE|EXÉCUTIVE/i.test(importedType)) return "executive";
+  if (/JUNIOR|SUITE/i.test(importedType)) return "junior";
+  if (/STANDARD/i.test(importedType)) return "standard";
   if (executiveRooms.has(number)) return "executive";
   if (juniorRooms.has(number)) return "junior";
   return "standard";
@@ -117,7 +304,10 @@ function normalizeTaskSelection() {
 }
 
 function renderTypeTabs() {
-  document.querySelectorAll("[data-type]").forEach((button) => button.classList.toggle("active", button.dataset.type === state.selectedType));
+  document.querySelectorAll("[data-type]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.type === state.selectedType);
+    button.disabled = button.dataset.type !== "all" && !rooms.some((room) => roomTypeId(room.number) === button.dataset.type);
+  });
 }
 
 function renderRoomSelect() {
@@ -223,6 +413,7 @@ function render() {
   renderRoomHeading();
   renderTaskList();
   renderEditor();
+  renderDxfZones();
   renderZoom();
 }
 
@@ -237,6 +428,7 @@ function setZone(zone) {
 }
 
 function setType(type) {
+  if (type !== "all" && !rooms.some((room) => roomTypeId(room.number) === type)) return;
   state.selectedType = type;
   if (!roomMatchesType(state.selectedRoom)) state.selectedRoom = rooms.find((room) => roomMatchesType(room.number)).number;
   if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
@@ -257,7 +449,7 @@ function fitPlan() {
   const viewportWidth = elements.planViewport.clientWidth;
   const viewportHeight = elements.planViewport.clientHeight;
   const planWidth = Math.max(1, viewportWidth - 32);
-  const planHeight = planWidth / 1.676;
+  const planHeight = planWidth / state.planAspect;
   const scale = Math.min(1, (viewportWidth - 32) / planWidth, (viewportHeight - 32) / planHeight);
   state.zoom = Math.max(50, Math.floor(scale * 10) * 10);
   const fittedScale = state.zoom / 100;
@@ -271,6 +463,11 @@ document.addEventListener("click", (event) => {
   if (typeButton) setType(typeButton.dataset.type);
   const zoneButton = event.target.closest("[data-zone]");
   if (zoneButton && !zoneButton.disabled) setZone(zoneButton.dataset.zone);
+  const roomShape = event.target.closest("[data-room]");
+  if (roomShape) {
+    state.selectedRoom = Number(roomShape.dataset.room);
+    render();
+  }
   const taskButton = event.target.closest("[data-task]");
   if (taskButton) { state.selectedTask = taskButton.dataset.task; render(); }
   const quickButton = event.target.closest("[data-progress]");
@@ -333,30 +530,42 @@ elements.dwgInput.addEventListener("change", async (event) => {
   const extension = file.name.split(".").pop().toLowerCase();
   elements.importStatus.classList.remove("error");
 
-  if (!["dwg", "dxf"].includes(extension)) {
-    elements.importStatus.textContent = "Format non pris en charge";
+  if (extension !== "dxf") {
+    elements.importStatus.textContent = "Utilisez un fichier DXF";
     elements.importStatus.classList.add("error");
     return;
   }
 
-  if (extension === "dwg") {
-    const header = new TextDecoder("ascii").decode(await file.slice(0, 6).arrayBuffer());
-    if (!header.startsWith("AC10")) {
-      elements.importStatus.textContent = "Fichier DWG non reconnu";
-      elements.importStatus.classList.add("error");
-      return;
-    }
-  }
+  elements.importStatus.textContent = "Analyse du DXF...";
+  await new Promise((resolve) => window.setTimeout(resolve, 20));
 
-  const metadata = {
-    name: file.name,
-    size: file.size,
-    extension,
-    layers: ["CHAMBRE", "SDB", "LOGGIA"],
-  };
-  localStorage.setItem("suivi-hotel-import-meta", JSON.stringify(metadata));
-  elements.importStatus.textContent = `${file.name} sélectionné`;
-  elements.importStatus.title = "Calques attendus : CHAMBRE, SDB, LOGGIA";
+  try {
+    const parser = new window.DxfParser();
+    const dxf = parser.parseSync(await file.text());
+    const model = buildDxfModel(dxf);
+    state.dxfModel = model;
+    state.importedTypes = Object.fromEntries(model.rooms.map((room) => [room.number, room.typeText]));
+    rooms = model.rooms.map((room) => ({ number: room.number }));
+    loggiaRooms.clear();
+    model.rooms.filter((room) => room.loggias.length).forEach((room) => loggiaRooms.add(room.number));
+    state.selectedRoom = rooms[0].number;
+    state.selectedType = "all";
+    if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
+    renderDxfBase();
+    render();
+    window.requestAnimationFrame(fitPlan);
+
+    const bathroomCount = model.rooms.reduce((count, room) => count + room.bathrooms.length, 0);
+    const loggiaCount = model.rooms.reduce((count, room) => count + room.loggias.length, 0);
+    const metadata = { name: file.name, size: file.size, extension, rooms: model.rooms.length, bathroomCount, loggiaCount };
+    localStorage.setItem("suivi-hotel-import-meta", JSON.stringify(metadata));
+    elements.importStatus.textContent = `${model.rooms.length} chambres chargées`;
+    elements.importStatus.title = `${file.name} - ${bathroomCount} SDB - ${loggiaCount} loggias associées`;
+  } catch (error) {
+    console.error(error);
+    elements.importStatus.textContent = error.message || "DXF illisible";
+    elements.importStatus.classList.add("error");
+  }
 });
 
 document.querySelector("#resetButton").addEventListener("click", () => {
