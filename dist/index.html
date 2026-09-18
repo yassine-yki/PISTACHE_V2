@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Suivi visuel des travaux de second oeuvre de l'etage R+2." />
+    <title>Suivi Hôtel R+2</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">R+2</div>
+        <div>
+          <h1>Suivi des chambres</h1>
+          <p>Second oeuvre - niveau R+2</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="save-state" id="saveState">Enregistré sur cet appareil</span>
+        <button class="button secondary" id="resetButton" type="button">Réinitialiser</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="workspace" aria-label="Plan interactif">
+        <div class="controlbar">
+          <div class="control-group zone-control" aria-label="Zone suivie">
+            <span class="control-label">Zone</span>
+            <div class="segmented" id="globalZoneTabs">
+              <button class="active" type="button" data-zone="bathroom">Salle de bain</button>
+              <button type="button" data-zone="bedroom">Chambre</button>
+              <button type="button" data-zone="loggia">Loggia</button>
+            </div>
+          </div>
+
+          <label class="control-group task-control">
+            <span class="control-label">Tâche affichée</span>
+            <select id="taskSelect" aria-label="Tâche affichée sur le plan"></select>
+          </label>
+
+          <div class="legend" aria-label="Légende">
+            <span><i class="dot not-started"></i>Non commencé</span>
+            <span><i class="dot in-progress"></i>En cours</span>
+            <span><i class="dot done"></i>Terminé</span>
+          </div>
+
+          <div class="zoom-controls" aria-label="Zoom du plan">
+            <button id="zoomOut" type="button" title="Réduire le plan" aria-label="Réduire le plan">−</button>
+            <output id="zoomValue">100 %</output>
+            <button id="zoomIn" type="button" title="Agrandir le plan" aria-label="Agrandir le plan">+</button>
+          </div>
+        </div>
+
+        <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
+
+        <div class="plan-viewport" id="planViewport">
+          <div class="plan-content" id="planContent">
+            <img src="/assets/plan-r2.png" alt="Plan architectural du niveau R+2" />
+            <div class="markers" id="markers"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="detail-panel" aria-label="Détail de la chambre">
+        <div class="room-heading">
+          <div>
+            <span class="eyebrow">Chambre sélectionnée</span>
+            <h2 id="roomTitle">Chambre 203</h2>
+          </div>
+          <span class="room-type" id="roomType">Suite</span>
+        </div>
+
+        <div class="segmented detail-tabs" id="detailZoneTabs" aria-label="Zone de la chambre">
+          <button class="active" type="button" data-zone="bathroom">Salle de bain</button>
+          <button type="button" data-zone="bedroom">Chambre</button>
+          <button type="button" data-zone="loggia">Loggia</button>
+        </div>
+
+        <div class="task-list" id="taskList"></div>
+
+        <section class="task-editor" id="taskEditor" aria-live="polite">
+          <div class="editor-heading">
+            <div>
+              <span class="eyebrow">Mise à jour</span>
+              <h3 id="editorTaskTitle">Étanchéité SDB</h3>
+            </div>
+            <output class="percent-output" id="percentOutput">0 %</output>
+          </div>
+
+          <input id="progressRange" class="progress-range" type="range" min="0" max="100" step="5" value="0" aria-label="Pourcentage d'avancement" />
+          <div class="quick-progress" aria-label="Avancement rapide">
+            <button type="button" data-progress="0">0 %</button>
+            <button type="button" data-progress="25">25 %</button>
+            <button type="button" data-progress="50">50 %</button>
+            <button type="button" data-progress="75">75 %</button>
+            <button type="button" data-progress="100">100 %</button>
+          </div>
+
+          <label class="blocked-toggle">
+            <input type="checkbox" id="blockedInput" />
+            <span>Tâche bloquée</span>
+          </label>
+
+          <label class="field">
+            <span>Blocage ou observation</span>
+            <textarea id="noteInput" rows="3" placeholder="Ex. attente de validation, manque de matériau..."></textarea>
+          </label>
+
+          <details class="planning-details">
+            <summary>Planification facultative</summary>
+            <div class="date-grid">
+              <label class="field">
+                <span>Début prévu</span>
+                <input type="date" id="startDateInput" />
+              </label>
+              <label class="field">
+                <span>Fin prévue</span>
+                <input type="date" id="endDateInput" />
+              </label>
+            </div>
+          </details>
+        </section>
+      </aside>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
