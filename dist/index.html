@@ -57,17 +57,12 @@
             <select id="taskSelect" aria-label="Tâche affichée sur le plan"></select>
           </label>
 
-          <div class="legend" aria-label="Légende">
-            <span><i class="dot not-started"></i>Non commencé</span>
-            <span><i class="dot in-progress"></i>En cours</span>
-            <span><i class="dot done"></i>Terminé</span>
-          </div>
-
           <div class="zoom-controls" aria-label="Zoom du plan">
             <button id="zoomOut" type="button" title="Réduire le plan" aria-label="Réduire le plan">−</button>
-            <input id="zoomRange" type="range" min="75" max="250" step="25" value="100" aria-label="Niveau de zoom" />
+            <input id="zoomRange" type="range" min="50" max="250" step="10" value="100" aria-label="Niveau de zoom" />
             <output id="zoomValue">100 %</output>
             <button id="zoomIn" type="button" title="Agrandir le plan" aria-label="Agrandir le plan">+</button>
+            <button id="fitPlan" class="fit-plan" type="button" title="Afficher le plan entier">Ajuster</button>
           </div>
         </div>
 

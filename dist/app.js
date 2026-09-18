@@ -236,9 +236,9 @@ function renderSummary() {
   const blocked = records.filter((record) => record.blocked).length;
   const notStarted = records.filter((record) => record.progress === 0).length;
   elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> chambres</span>
-    <span class="summary-item"><i class="dot done"></i><strong>${done}</strong> terminées</span>
-    <span class="summary-item"><i class="dot in-progress"></i><strong>${inProgress}</strong> en cours</span>
-    <span class="summary-item"><i class="dot not-started"></i><strong>${notStarted}</strong> non commencées</span>
+    <span class="summary-item"><strong>${done}</strong> terminées</span>
+    <span class="summary-item"><strong>${inProgress}</strong> en cours</span>
+    <span class="summary-item"><strong>${notStarted}</strong> non commencées</span>
     <span class="summary-item"><strong>${blocked}</strong> bloquées</span>`;
 }
 
@@ -318,8 +318,17 @@ function setType(type) {
 }
 
 function setZoom(value) {
-  state.zoom = Math.max(75, Math.min(250, Number(value)));
+  state.zoom = Math.max(50, Math.min(250, Number(value)));
   renderZoom();
+}
+
+function fitPlan() {
+  const availableWidth = Math.max(1, elements.planViewport.clientWidth - 32);
+  const availableHeight = Math.max(1, elements.planViewport.clientHeight - 32);
+  const planHeightAtFullWidth = availableWidth / 1.676;
+  const fittedZoom = Math.floor(Math.min(100, availableHeight / planHeightAtFullWidth * 100) / 10) * 10;
+  setZoom(Math.max(50, fittedZoom));
+  elements.planViewport.scrollTo({ top: 0, left: 0 });
 }
 
 document.addEventListener("click", (event) => {
@@ -350,6 +359,7 @@ elements.startDateInput.addEventListener("change", (event) => updateRecord({ sta
 elements.endDateInput.addEventListener("change", (event) => updateRecord({ endDate: event.target.value }));
 document.querySelector("#zoomIn").addEventListener("click", () => setZoom(state.zoom + 25));
 document.querySelector("#zoomOut").addEventListener("click", () => setZoom(state.zoom - 25));
+document.querySelector("#fitPlan").addEventListener("click", fitPlan);
 elements.zoomRange.addEventListener("input", (event) => setZoom(event.target.value));
 elements.planViewport.addEventListener("wheel", (event) => {
   if (!event.ctrlKey) return;
@@ -365,3 +375,4 @@ document.querySelector("#resetButton").addEventListener("click", () => {
 });
 
 render();
+window.requestAnimationFrame(fitPlan);
