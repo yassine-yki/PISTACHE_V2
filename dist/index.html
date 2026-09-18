@@ -26,6 +26,23 @@
     <main class="app-shell">
       <section class="workspace" aria-label="Plan interactif">
         <div class="controlbar">
+          <label class="control-group floor-control">
+            <span class="control-label">Étage</span>
+            <select id="floorSelect" aria-label="Étage affiché">
+              <option value="r2">R+2</option>
+            </select>
+          </label>
+
+          <div class="control-group type-control" aria-label="Type de chambre">
+            <span class="control-label">Typologie</span>
+            <div class="segmented" id="typeTabs">
+              <button class="active" type="button" data-type="all">Toutes</button>
+              <button type="button" data-type="standard">Standard</button>
+              <button type="button" data-type="junior">Junior Suite</button>
+              <button type="button" data-type="executive">Exécutive</button>
+            </div>
+          </div>
+
           <div class="control-group zone-control" aria-label="Zone suivie">
             <span class="control-label">Zone</span>
             <div class="segmented" id="globalZoneTabs">
@@ -48,6 +65,7 @@
 
           <div class="zoom-controls" aria-label="Zoom du plan">
             <button id="zoomOut" type="button" title="Réduire le plan" aria-label="Réduire le plan">−</button>
+            <input id="zoomRange" type="range" min="75" max="250" step="25" value="100" aria-label="Niveau de zoom" />
             <output id="zoomValue">100 %</output>
             <button id="zoomIn" type="button" title="Agrandir le plan" aria-label="Agrandir le plan">+</button>
           </div>
@@ -57,8 +75,10 @@
 
         <div class="plan-viewport" id="planViewport">
           <div class="plan-content" id="planContent">
-            <img src="/assets/plan-r2.png" alt="Plan architectural du niveau R+2" />
-            <div class="markers" id="markers"></div>
+            <div class="plan-image-crop">
+              <img src="/assets/plan-r2.png" alt="Plan architectural recadré du niveau R+2" />
+            </div>
+            <div class="room-zones" id="roomZones"></div>
           </div>
         </div>
       </section>
@@ -69,7 +89,7 @@
             <span class="eyebrow">Chambre sélectionnée</span>
             <h2 id="roomTitle">Chambre 203</h2>
           </div>
-          <span class="room-type" id="roomType">Suite</span>
+          <span class="room-type" id="roomType">Junior Suite</span>
         </div>
 
         <div class="segmented detail-tabs" id="detailZoneTabs" aria-label="Zone de la chambre">
@@ -89,7 +109,14 @@
             <output class="percent-output" id="percentOutput">0 %</output>
           </div>
 
-          <input id="progressRange" class="progress-range" type="range" min="0" max="100" step="5" value="0" aria-label="Pourcentage d'avancement" />
+          <div class="progress-entry">
+            <input id="progressRange" class="progress-range" type="range" min="0" max="100" step="1" value="0" aria-label="Pourcentage d'avancement" />
+            <label class="percent-input-wrap">
+              <span class="sr-only">Saisir le pourcentage</span>
+              <input id="percentInput" type="number" min="0" max="100" step="1" value="0" inputmode="numeric" aria-label="Saisir le pourcentage" />
+              <span>%</span>
+            </label>
+          </div>
           <div class="quick-progress" aria-label="Avancement rapide">
             <button type="button" data-progress="0">0 %</button>
             <button type="button" data-progress="25">25 %</button>

@@ -31,21 +31,60 @@ const rooms = [
   [237, 31.36, 33.49], [238, 31.28, 40.01], [239, 31.42, 46.83], [240, 31.35, 53.44],
 ].map(([number, x, y]) => ({ number, x, y }));
 
-const suiteRooms = new Set([203, 206, 209, 210, 212, 217, 227, 235]);
+const roomByNumber = new Map(rooms.map((room) => [room.number, room]));
+const juniorRooms = new Set([203, 206, 209, 210, 212, 217, 227, 235]);
 const executiveRooms = new Set([214]);
 const loggiaRooms = new Set([203, 206, 209, 210, 212, 214, 217, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236]);
+
+const crop = { x0: 17, x1: 86.5, y0: 4, y1: 92 };
+const toX = (value) => ((value - crop.x0) / (crop.x1 - crop.x0)) * 100;
+const toY = (value) => ((value - crop.y0) / (crop.y1 - crop.y0)) * 100;
+const toW = (value) => (value / (crop.x1 - crop.x0)) * 100;
+const toH = (value) => (value / (crop.y1 - crop.y0)) * 100;
+
+function makeRow(numbers, leftEdge, rightEdge, top, bottom, orientation) {
+  const centers = numbers.map((number) => roomByNumber.get(number).x);
+  return numbers.map((number, index) => {
+    const left = index === 0 ? leftEdge : (centers[index - 1] + centers[index]) / 2;
+    const right = index === numbers.length - 1 ? rightEdge : (centers[index] + centers[index + 1]) / 2;
+    return [number, { x: toX(left), y: toY(top), w: toW(right - left), h: toH(bottom - top), orientation, angle: 0 }];
+  });
+}
+
+function makeColumn(numbers, topEdge, bottomEdge, left, right, orientation) {
+  const centers = numbers.map((number) => roomByNumber.get(number).y);
+  return numbers.map((number, index) => {
+    const top = index === 0 ? topEdge : (centers[index - 1] + centers[index]) / 2;
+    const bottom = index === numbers.length - 1 ? bottomEdge : (centers[index] + centers[index + 1]) / 2;
+    return [number, { x: toX(left), y: toY(top), w: toW(right - left), h: toH(bottom - top), orientation, angle: 0 }];
+  });
+}
+
+const roomLayouts = new Map([
+  ...makeRow([201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213], 18.4, 75.0, 72.4, 91.4, "south"),
+  ...makeRow([236, 235, 234, 233, 232, 231, 230, 229, 228, 227], 24.2, 63.5, 5.0, 27.1, "north"),
+  ...makeRow([218, 219, 220, 221, 222], 35.0, 55.4, 56.4, 69.5, "north"),
+  ...makeColumn([237, 238, 239, 240], 29.2, 57.2, 26.0, 36.4, "east"),
+  ...makeColumn([226, 225, 224, 223], 29.2, 57.2, 54.9, 62.9, "west"),
+  [217, { x: toX(73.4), y: toY(47.0), w: toW(11.2), h: toH(13.2), orientation: "south", angle: 8 }],
+  [216, { x: toX(75.2), y: toY(56.2), w: toW(10.4), h: toH(11.5), orientation: "south", angle: 10 }],
+  [215, { x: toX(76.0), y: toY(64.0), w: toW(10.1), h: toH(11.5), orientation: "south", angle: 11 }],
+  [214, { x: toX(75.3), y: toY(72.0), w: toW(11.4), h: toH(19.0), orientation: "south", angle: 12 }],
+]);
 
 const state = {
   selectedRoom: 203,
   selectedZone: "bathroom",
   selectedTask: "waterproofing",
+  selectedType: "all",
   zoom: 100,
   records: loadRecords(),
 };
 
 const elements = {
-  markers: document.querySelector("#markers"),
+  roomZones: document.querySelector("#roomZones"),
   planContent: document.querySelector("#planContent"),
+  planViewport: document.querySelector("#planViewport"),
   taskSelect: document.querySelector("#taskSelect"),
   summaryStrip: document.querySelector("#summaryStrip"),
   roomTitle: document.querySelector("#roomTitle"),
@@ -54,31 +93,24 @@ const elements = {
   taskEditor: document.querySelector("#taskEditor"),
   editorTaskTitle: document.querySelector("#editorTaskTitle"),
   percentOutput: document.querySelector("#percentOutput"),
+  percentInput: document.querySelector("#percentInput"),
   progressRange: document.querySelector("#progressRange"),
   blockedInput: document.querySelector("#blockedInput"),
   noteInput: document.querySelector("#noteInput"),
   startDateInput: document.querySelector("#startDateInput"),
   endDateInput: document.querySelector("#endDateInput"),
+  zoomRange: document.querySelector("#zoomRange"),
   zoomValue: document.querySelector("#zoomValue"),
   saveState: document.querySelector("#saveState"),
 };
 
 function loadRecords() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+  catch { return {}; }
 }
 
 function getRecord(room, zone, task) {
-  return state.records[`${room}:${zone}:${task}`] || {
-    progress: 0,
-    blocked: false,
-    note: "",
-    startDate: "",
-    endDate: "",
-  };
+  return state.records[`${room}:${zone}:${task}`] || { progress: 0, blocked: false, note: "", startDate: "", endDate: "" };
 }
 
 function updateRecord(changes) {
@@ -90,10 +122,33 @@ function updateRecord(changes) {
   render();
 }
 
+function updateProgress(value) {
+  const progress = Math.max(0, Math.min(100, Number(value || 0)));
+  const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
+  state.records[key] = { ...getRecord(state.selectedRoom, state.selectedZone, state.selectedTask), progress };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records));
+  elements.percentOutput.textContent = `${progress} %`;
+  elements.percentInput.value = progress;
+  elements.progressRange.value = progress;
+  elements.saveState.textContent = "Enregistré à l'instant";
+  window.setTimeout(() => { elements.saveState.textContent = "Enregistré sur cet appareil"; }, 1400);
+  renderRoomZones();
+  renderSummary();
+  renderTaskList();
+}
+
+function roomTypeId(number) {
+  if (executiveRooms.has(number)) return "executive";
+  if (juniorRooms.has(number)) return "junior";
+  return "standard";
+}
+
 function roomType(number) {
-  if (executiveRooms.has(number)) return "Suite exécutive";
-  if (suiteRooms.has(number)) return "Suite";
-  return "Standard";
+  return { executive: "Exécutive", junior: "Junior Suite", standard: "Standard" }[roomTypeId(number)];
+}
+
+function roomMatchesType(number) {
+  return state.selectedType === "all" || roomTypeId(number) === state.selectedType;
 }
 
 function statusClass(record) {
@@ -103,15 +158,19 @@ function statusClass(record) {
   return "status-red";
 }
 
-function currentTasks() {
-  return tasksByZone[state.selectedZone];
-}
+function currentTasks() { return tasksByZone[state.selectedZone]; }
 
 function normalizeTaskSelection() {
   const tasks = currentTasks();
-  if (tasks.length && !tasks.some((task) => task.id === state.selectedTask)) {
-    state.selectedTask = tasks[0].id;
+  if (!tasks.length) {
+    state.selectedTask = "";
+    return;
   }
+  if (tasks.length && !tasks.some((task) => task.id === state.selectedTask)) state.selectedTask = tasks[0].id;
+}
+
+function renderTypeTabs() {
+  document.querySelectorAll("[data-type]").forEach((button) => button.classList.toggle("active", button.dataset.type === state.selectedType));
 }
 
 function renderZoneTabs() {
@@ -134,30 +193,49 @@ function renderTaskSelect() {
   elements.taskSelect.value = state.selectedTask;
 }
 
-function renderMarkers() {
-  elements.markers.innerHTML = rooms.map((room) => {
-    const hasZone = state.selectedZone !== "loggia" || loggiaRooms.has(room.number);
-    const record = hasZone && state.selectedTask
-      ? getRecord(room.number, state.selectedZone, state.selectedTask)
-      : null;
-    const selected = room.number === state.selectedRoom ? " selected" : "";
-    const blocked = record?.blocked ? " blocked" : "";
-    const label = hasZone
-      ? `Chambre ${room.number}, ${record.progress} %${record.blocked ? ", bloquée" : ""}`
-      : `Chambre ${room.number}, sans loggia`;
-    return `<button class="room-marker ${statusClass(record)}${selected}${blocked}" style="left:${room.x}%;top:${room.y}%" data-room="${room.number}" type="button" aria-label="${label}" title="${label}">${room.number}</button>`;
+function zonePart(zone, label, record) {
+  const active = zone === state.selectedZone;
+  const classes = ["zone-part", zone, active ? "active-zone" : "", active ? statusClass(record) : ""];
+  return `<span class="${classes.filter(Boolean).join(" ")}"><small class="zone-label">${label}</small></span>`;
+}
+
+function renderRoomZones() {
+  elements.roomZones.innerHTML = rooms.map((room) => {
+    const layout = roomLayouts.get(room.number);
+    if (!layout) return "";
+    const hasLoggia = loggiaRooms.has(room.number);
+    const hasSelectedZone = state.selectedZone !== "loggia" || hasLoggia;
+    const record = hasSelectedZone && state.selectedTask ? getRecord(room.number, state.selectedZone, state.selectedTask) : null;
+    const classes = ["room-boundary", layout.orientation, hasLoggia ? "has-loggia" : "", room.number === state.selectedRoom ? "selected" : "", roomMatchesType(room.number) ? "" : "filtered-out", hasSelectedZone ? "" : "zone-unavailable", record?.blocked ? "blocked" : ""];
+    const label = hasSelectedZone
+      ? `Chambre ${room.number}, ${roomType(room.number)}, ${record?.progress ?? 0} %${record?.blocked ? ", bloquée" : ""}`
+      : `Chambre ${room.number}, ${roomType(room.number)}, sans loggia`;
+    const style = `left:${layout.x}%;top:${layout.y}%;width:${layout.w}%;height:${layout.h}%;transform:rotate(${layout.angle}deg)`;
+    return `<button class="${classes.filter(Boolean).join(" ")}" style="${style}" data-room="${room.number}" type="button" aria-label="${label}" title="${label}">
+      ${zonePart("bathroom", "SDB", state.selectedZone === "bathroom" ? record : null)}
+      ${zonePart("bedroom", "CH", state.selectedZone === "bedroom" ? record : null)}
+      ${hasLoggia ? zonePart("loggia", "LG", state.selectedZone === "loggia" ? record : null) : ""}
+      <span class="room-number">${room.number}</span>
+    </button>`;
   }).join("");
 }
 
+function filteredRooms() {
+  return rooms.filter((room) => roomMatchesType(room.number) && (state.selectedZone !== "loggia" || loggiaRooms.has(room.number)));
+}
+
 function renderSummary() {
-  const availableRooms = rooms.filter((room) => state.selectedZone !== "loggia" || loggiaRooms.has(room.number));
+  const availableRooms = filteredRooms();
+  if (!state.selectedTask) {
+    elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> loggias</span><span class="summary-item">Tâches à définir</span>`;
+    return;
+  }
   const records = availableRooms.map((room) => getRecord(room.number, state.selectedZone, state.selectedTask));
   const done = records.filter((record) => record.progress >= 100).length;
   const inProgress = records.filter((record) => record.progress > 0 && record.progress < 100).length;
   const blocked = records.filter((record) => record.blocked).length;
   const notStarted = records.filter((record) => record.progress === 0).length;
-  elements.summaryStrip.innerHTML = `
-    <span class="summary-item"><strong>${availableRooms.length}</strong> zones</span>
+  elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> chambres</span>
     <span class="summary-item"><i class="dot done"></i><strong>${done}</strong> terminées</span>
     <span class="summary-item"><i class="dot in-progress"></i><strong>${inProgress}</strong> en cours</span>
     <span class="summary-item"><i class="dot not-started"></i><strong>${notStarted}</strong> non commencées</span>
@@ -176,15 +254,13 @@ function renderTaskList() {
     elements.taskEditor.hidden = true;
     return;
   }
-
   elements.taskEditor.hidden = false;
   elements.taskList.innerHTML = tasks.map((task) => {
     const record = getRecord(state.selectedRoom, state.selectedZone, task.id);
     const active = task.id === state.selectedTask ? " active" : "";
     const complete = record.progress >= 100 ? " complete" : "";
     return `<button class="task-row${active}" type="button" data-task="${task.id}">
-      <span class="task-name">${task.label}</span>
-      <span class="task-percent">${record.progress} %</span>
+      <span class="task-name">${task.label}</span><span class="task-percent">${record.progress} %</span>
       ${record.blocked ? '<span class="blocked-tag">Bloquée</span>' : ""}
       <span class="task-track"><i class="${complete}" style="width:${record.progress}%"></i></span>
     </button>`;
@@ -197,6 +273,7 @@ function renderEditor() {
   const record = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
   elements.editorTaskTitle.textContent = task.label;
   elements.percentOutput.textContent = `${record.progress} %`;
+  elements.percentInput.value = record.progress;
   elements.progressRange.value = record.progress;
   elements.blockedInput.checked = record.blocked;
   elements.noteInput.value = record.note;
@@ -206,14 +283,16 @@ function renderEditor() {
 
 function renderZoom() {
   elements.planContent.style.width = `${state.zoom}%`;
+  elements.zoomRange.value = state.zoom;
   elements.zoomValue.textContent = `${state.zoom} %`;
 }
 
 function render() {
   normalizeTaskSelection();
+  renderTypeTabs();
   renderZoneTabs();
   renderTaskSelect();
-  renderMarkers();
+  renderRoomZones();
   renderSummary();
   renderRoomHeading();
   renderTaskList();
@@ -223,7 +302,7 @@ function render() {
 
 function setZone(zone) {
   if (zone === "loggia" && !loggiaRooms.has(state.selectedRoom)) {
-    const firstLoggia = rooms.find((room) => loggiaRooms.has(room.number));
+    const firstLoggia = filteredRooms().find((room) => loggiaRooms.has(room.number)) || rooms.find((room) => loggiaRooms.has(room.number));
     state.selectedRoom = firstLoggia.number;
   }
   state.selectedZone = zone;
@@ -231,51 +310,52 @@ function setZone(zone) {
   render();
 }
 
+function setType(type) {
+  state.selectedType = type;
+  if (!roomMatchesType(state.selectedRoom)) state.selectedRoom = rooms.find((room) => roomMatchesType(room.number)).number;
+  if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
+  render();
+}
+
+function setZoom(value) {
+  state.zoom = Math.max(75, Math.min(250, Number(value)));
+  renderZoom();
+}
+
 document.addEventListener("click", (event) => {
+  const typeButton = event.target.closest("[data-type]");
+  if (typeButton) setType(typeButton.dataset.type);
   const zoneButton = event.target.closest("[data-zone]");
   if (zoneButton && !zoneButton.disabled) setZone(zoneButton.dataset.zone);
-
-  const marker = event.target.closest("[data-room]");
-  if (marker) {
-    state.selectedRoom = Number(marker.dataset.room);
+  const roomShape = event.target.closest("[data-room]");
+  if (roomShape) {
+    state.selectedRoom = Number(roomShape.dataset.room);
     if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
     render();
   }
-
   const taskButton = event.target.closest("[data-task]");
-  if (taskButton) {
-    state.selectedTask = taskButton.dataset.task;
-    render();
-  }
-
+  if (taskButton) { state.selectedTask = taskButton.dataset.task; render(); }
   const quickButton = event.target.closest("[data-progress]");
   if (quickButton) updateRecord({ progress: Number(quickButton.dataset.progress) });
 });
 
-elements.taskSelect.addEventListener("change", (event) => {
-  state.selectedTask = event.target.value;
-  render();
-});
-
+elements.taskSelect.addEventListener("change", (event) => { state.selectedTask = event.target.value; render(); });
 elements.progressRange.addEventListener("input", (event) => {
-  elements.percentOutput.textContent = `${event.target.value} %`;
+  updateProgress(event.target.value);
 });
-
-elements.progressRange.addEventListener("change", (event) => updateRecord({ progress: Number(event.target.value) }));
+elements.percentInput.addEventListener("input", (event) => updateProgress(event.target.value));
 elements.blockedInput.addEventListener("change", (event) => updateRecord({ blocked: event.target.checked }));
 elements.noteInput.addEventListener("change", (event) => updateRecord({ note: event.target.value.trim() }));
 elements.startDateInput.addEventListener("change", (event) => updateRecord({ startDate: event.target.value }));
 elements.endDateInput.addEventListener("change", (event) => updateRecord({ endDate: event.target.value }));
-
-document.querySelector("#zoomIn").addEventListener("click", () => {
-  state.zoom = Math.min(200, state.zoom + 25);
-  renderZoom();
-});
-
-document.querySelector("#zoomOut").addEventListener("click", () => {
-  state.zoom = Math.max(75, state.zoom - 25);
-  renderZoom();
-});
+document.querySelector("#zoomIn").addEventListener("click", () => setZoom(state.zoom + 25));
+document.querySelector("#zoomOut").addEventListener("click", () => setZoom(state.zoom - 25));
+elements.zoomRange.addEventListener("input", (event) => setZoom(event.target.value));
+elements.planViewport.addEventListener("wheel", (event) => {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  setZoom(state.zoom + (event.deltaY < 0 ? 25 : -25));
+}, { passive: false });
 
 document.querySelector("#resetButton").addEventListener("click", () => {
   if (!window.confirm("Effacer tous les avancements enregistrés sur cet appareil ?")) return;
