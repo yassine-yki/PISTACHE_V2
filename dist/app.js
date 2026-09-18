@@ -18,59 +18,10 @@ const tasksByZone = {
   loggia: [],
 };
 
-const rooms = [
-  [201, 20.42, 83.15], [202, 23.93, 83.15], [203, 26.98, 83.15], [204, 33.39, 83.15],
-  [205, 36.67, 83.15], [206, 39.84, 83.15], [207, 45.45, 83.15], [208, 48.69, 83.15],
-  [209, 51.76, 83.15], [210, 59.85, 83.15], [211, 63.04, 84.03], [212, 69.27, 82.18],
-  [213, 72.97, 82.09], [214, 82.28, 81.15], [215, 81.12, 68.31], [216, 80.49, 61.75],
-  [217, 78.91, 54.46], [218, 37.33, 62.52], [219, 41.52, 62.52], [220, 45.45, 62.52],
-  [221, 49.56, 62.52], [222, 53.48, 62.52], [223, 58.36, 53.35], [224, 58.36, 47.36],
-  [225, 58.16, 40.01], [226, 58.16, 33.49], [227, 61.32, 16.70], [228, 57.55, 16.70],
-  [229, 53.88, 16.70], [230, 50.63, 16.70], [231, 47.11, 16.70], [232, 43.76, 16.70],
-  [233, 40.45, 16.70], [234, 37.25, 16.68], [235, 33.18, 14.70], [236, 26.80, 17.39],
-  [237, 31.36, 33.49], [238, 31.28, 40.01], [239, 31.42, 46.83], [240, 31.35, 53.44],
-].map(([number, x, y]) => ({ number, x, y }));
-
-const roomByNumber = new Map(rooms.map((room) => [room.number, room]));
+const rooms = Array.from({ length: 40 }, (_, index) => ({ number: 201 + index }));
 const juniorRooms = new Set([203, 206, 209, 210, 212, 217, 227, 235]);
 const executiveRooms = new Set([214]);
 const loggiaRooms = new Set([203, 206, 209, 210, 212, 214, 217, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236]);
-
-const crop = { x0: 17, x1: 86.5, y0: 4, y1: 92 };
-const toX = (value) => ((value - crop.x0) / (crop.x1 - crop.x0)) * 100;
-const toY = (value) => ((value - crop.y0) / (crop.y1 - crop.y0)) * 100;
-const toW = (value) => (value / (crop.x1 - crop.x0)) * 100;
-const toH = (value) => (value / (crop.y1 - crop.y0)) * 100;
-
-function makeRow(numbers, leftEdge, rightEdge, top, bottom, orientation) {
-  const centers = numbers.map((number) => roomByNumber.get(number).x);
-  return numbers.map((number, index) => {
-    const left = index === 0 ? leftEdge : (centers[index - 1] + centers[index]) / 2;
-    const right = index === numbers.length - 1 ? rightEdge : (centers[index] + centers[index + 1]) / 2;
-    return [number, { x: toX(left), y: toY(top), w: toW(right - left), h: toH(bottom - top), orientation, angle: 0 }];
-  });
-}
-
-function makeColumn(numbers, topEdge, bottomEdge, left, right, orientation) {
-  const centers = numbers.map((number) => roomByNumber.get(number).y);
-  return numbers.map((number, index) => {
-    const top = index === 0 ? topEdge : (centers[index - 1] + centers[index]) / 2;
-    const bottom = index === numbers.length - 1 ? bottomEdge : (centers[index] + centers[index + 1]) / 2;
-    return [number, { x: toX(left), y: toY(top), w: toW(right - left), h: toH(bottom - top), orientation, angle: 0 }];
-  });
-}
-
-const roomLayouts = new Map([
-  ...makeRow([201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213], 18.4, 75.0, 72.4, 91.4, "south"),
-  ...makeRow([236, 235, 234, 233, 232, 231, 230, 229, 228, 227], 24.2, 63.5, 5.0, 27.1, "north"),
-  ...makeRow([218, 219, 220, 221, 222], 35.0, 55.4, 56.4, 69.5, "north"),
-  ...makeColumn([237, 238, 239, 240], 29.2, 57.2, 26.0, 36.4, "east"),
-  ...makeColumn([226, 225, 224, 223], 29.2, 57.2, 54.9, 62.9, "west"),
-  [217, { x: toX(73.4), y: toY(47.0), w: toW(11.2), h: toH(13.2), orientation: "south", angle: 8 }],
-  [216, { x: toX(75.2), y: toY(56.2), w: toW(10.4), h: toH(11.5), orientation: "south", angle: 10 }],
-  [215, { x: toX(76.0), y: toY(64.0), w: toW(10.1), h: toH(11.5), orientation: "south", angle: 11 }],
-  [214, { x: toX(75.3), y: toY(72.0), w: toW(11.4), h: toH(19.0), orientation: "south", angle: 12 }],
-]);
 
 const state = {
   selectedRoom: 203,
@@ -78,13 +29,17 @@ const state = {
   selectedTask: "waterproofing",
   selectedType: "all",
   zoom: 100,
+  panX: 16,
+  panY: 16,
   records: loadRecords(),
 };
 
 const elements = {
-  roomZones: document.querySelector("#roomZones"),
   planContent: document.querySelector("#planContent"),
   planViewport: document.querySelector("#planViewport"),
+  roomSelect: document.querySelector("#roomSelect"),
+  dwgInput: document.querySelector("#dwgInput"),
+  importStatus: document.querySelector("#importStatus"),
   taskSelect: document.querySelector("#taskSelect"),
   summaryStrip: document.querySelector("#summaryStrip"),
   roomTitle: document.querySelector("#roomTitle"),
@@ -132,7 +87,6 @@ function updateProgress(value) {
   elements.progressRange.value = progress;
   elements.saveState.textContent = "Enregistré à l'instant";
   window.setTimeout(() => { elements.saveState.textContent = "Enregistré sur cet appareil"; }, 1400);
-  renderRoomZones();
   renderSummary();
   renderTaskList();
 }
@@ -151,13 +105,6 @@ function roomMatchesType(number) {
   return state.selectedType === "all" || roomTypeId(number) === state.selectedType;
 }
 
-function statusClass(record) {
-  if (!record) return "status-na";
-  if (record.progress >= 100) return "status-green";
-  if (record.progress > 0) return "status-orange";
-  return "status-red";
-}
-
 function currentTasks() { return tasksByZone[state.selectedZone]; }
 
 function normalizeTaskSelection() {
@@ -171,6 +118,12 @@ function normalizeTaskSelection() {
 
 function renderTypeTabs() {
   document.querySelectorAll("[data-type]").forEach((button) => button.classList.toggle("active", button.dataset.type === state.selectedType));
+}
+
+function renderRoomSelect() {
+  const options = rooms.filter((room) => roomMatchesType(room.number));
+  elements.roomSelect.innerHTML = options.map((room) => `<option value="${room.number}">${room.number} - ${roomType(room.number)}</option>`).join("");
+  elements.roomSelect.value = String(state.selectedRoom);
 }
 
 function renderZoneTabs() {
@@ -191,33 +144,6 @@ function renderTaskSelect() {
     : '<option value="">Tâches à définir</option>';
   elements.taskSelect.disabled = !tasks.length;
   elements.taskSelect.value = state.selectedTask;
-}
-
-function zonePart(zone, label, record) {
-  const active = zone === state.selectedZone;
-  const classes = ["zone-part", zone, active ? "active-zone" : "", active ? statusClass(record) : ""];
-  return `<span class="${classes.filter(Boolean).join(" ")}"><small class="zone-label">${label}</small></span>`;
-}
-
-function renderRoomZones() {
-  elements.roomZones.innerHTML = rooms.map((room) => {
-    const layout = roomLayouts.get(room.number);
-    if (!layout) return "";
-    const hasLoggia = loggiaRooms.has(room.number);
-    const hasSelectedZone = state.selectedZone !== "loggia" || hasLoggia;
-    const record = hasSelectedZone && state.selectedTask ? getRecord(room.number, state.selectedZone, state.selectedTask) : null;
-    const classes = ["room-boundary", layout.orientation, hasLoggia ? "has-loggia" : "", room.number === state.selectedRoom ? "selected" : "", roomMatchesType(room.number) ? "" : "filtered-out", hasSelectedZone ? "" : "zone-unavailable", record?.blocked ? "blocked" : ""];
-    const label = hasSelectedZone
-      ? `Chambre ${room.number}, ${roomType(room.number)}, ${record?.progress ?? 0} %${record?.blocked ? ", bloquée" : ""}`
-      : `Chambre ${room.number}, ${roomType(room.number)}, sans loggia`;
-    const style = `left:${layout.x}%;top:${layout.y}%;width:${layout.w}%;height:${layout.h}%;transform:rotate(${layout.angle}deg)`;
-    return `<button class="${classes.filter(Boolean).join(" ")}" style="${style}" data-room="${room.number}" type="button" aria-label="${label}" title="${label}">
-      ${zonePart("bathroom", "SDB", state.selectedZone === "bathroom" ? record : null)}
-      ${zonePart("bedroom", "CH", state.selectedZone === "bedroom" ? record : null)}
-      ${hasLoggia ? zonePart("loggia", "LG", state.selectedZone === "loggia" ? record : null) : ""}
-      <span class="room-number">${room.number}</span>
-    </button>`;
-  }).join("");
 }
 
 function filteredRooms() {
@@ -282,17 +208,17 @@ function renderEditor() {
 }
 
 function renderZoom() {
-  elements.planContent.style.width = `${state.zoom}%`;
+  elements.planContent.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom / 100})`;
   elements.zoomRange.value = state.zoom;
-  elements.zoomValue.textContent = `${state.zoom} %`;
+  elements.zoomValue.textContent = `${Math.round(state.zoom)} %`;
 }
 
 function render() {
   normalizeTaskSelection();
   renderTypeTabs();
+  renderRoomSelect();
   renderZoneTabs();
   renderTaskSelect();
-  renderRoomZones();
   renderSummary();
   renderRoomHeading();
   renderTaskList();
@@ -317,18 +243,27 @@ function setType(type) {
   render();
 }
 
-function setZoom(value) {
-  state.zoom = Math.max(50, Math.min(250, Number(value)));
+function setZoom(value, anchorX = elements.planViewport.clientWidth / 2, anchorY = elements.planViewport.clientHeight / 2) {
+  const oldScale = state.zoom / 100;
+  const nextZoom = Math.max(50, Math.min(400, Number(value)));
+  const newScale = nextZoom / 100;
+  state.panX = anchorX - ((anchorX - state.panX) * newScale / oldScale);
+  state.panY = anchorY - ((anchorY - state.panY) * newScale / oldScale);
+  state.zoom = nextZoom;
   renderZoom();
 }
 
 function fitPlan() {
-  const availableWidth = Math.max(1, elements.planViewport.clientWidth - 32);
-  const availableHeight = Math.max(1, elements.planViewport.clientHeight - 32);
-  const planHeightAtFullWidth = availableWidth / 1.676;
-  const fittedZoom = Math.floor(Math.min(100, availableHeight / planHeightAtFullWidth * 100) / 10) * 10;
-  setZoom(Math.max(50, fittedZoom));
-  elements.planViewport.scrollTo({ top: 0, left: 0 });
+  const viewportWidth = elements.planViewport.clientWidth;
+  const viewportHeight = elements.planViewport.clientHeight;
+  const planWidth = Math.max(1, viewportWidth - 32);
+  const planHeight = planWidth / 1.676;
+  const scale = Math.min(1, (viewportWidth - 32) / planWidth, (viewportHeight - 32) / planHeight);
+  state.zoom = Math.max(50, Math.floor(scale * 10) * 10);
+  const fittedScale = state.zoom / 100;
+  state.panX = (viewportWidth - planWidth * fittedScale) / 2;
+  state.panY = (viewportHeight - planHeight * fittedScale) / 2;
+  renderZoom();
 }
 
 document.addEventListener("click", (event) => {
@@ -336,12 +271,6 @@ document.addEventListener("click", (event) => {
   if (typeButton) setType(typeButton.dataset.type);
   const zoneButton = event.target.closest("[data-zone]");
   if (zoneButton && !zoneButton.disabled) setZone(zoneButton.dataset.zone);
-  const roomShape = event.target.closest("[data-room]");
-  if (roomShape) {
-    state.selectedRoom = Number(roomShape.dataset.room);
-    if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
-    render();
-  }
   const taskButton = event.target.closest("[data-task]");
   if (taskButton) { state.selectedTask = taskButton.dataset.task; render(); }
   const quickButton = event.target.closest("[data-progress]");
@@ -349,6 +278,11 @@ document.addEventListener("click", (event) => {
 });
 
 elements.taskSelect.addEventListener("change", (event) => { state.selectedTask = event.target.value; render(); });
+elements.roomSelect.addEventListener("change", (event) => {
+  state.selectedRoom = Number(event.target.value);
+  if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
+  render();
+});
 elements.progressRange.addEventListener("input", (event) => {
   updateProgress(event.target.value);
 });
@@ -362,10 +296,68 @@ document.querySelector("#zoomOut").addEventListener("click", () => setZoom(state
 document.querySelector("#fitPlan").addEventListener("click", fitPlan);
 elements.zoomRange.addEventListener("input", (event) => setZoom(event.target.value));
 elements.planViewport.addEventListener("wheel", (event) => {
-  if (!event.ctrlKey) return;
   event.preventDefault();
-  setZoom(state.zoom + (event.deltaY < 0 ? 25 : -25));
+  const rect = elements.planViewport.getBoundingClientRect();
+  setZoom(state.zoom + (event.deltaY < 0 ? 20 : -20), event.clientX - rect.left, event.clientY - rect.top);
 }, { passive: false });
+
+let dragState = null;
+
+elements.planViewport.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  dragState = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY };
+  elements.planViewport.setPointerCapture(event.pointerId);
+  elements.planViewport.classList.add("dragging");
+});
+
+elements.planViewport.addEventListener("pointermove", (event) => {
+  if (!dragState) return;
+  state.panX = dragState.panX + event.clientX - dragState.x;
+  state.panY = dragState.panY + event.clientY - dragState.y;
+  renderZoom();
+});
+
+function stopDragging(event) {
+  if (!dragState) return;
+  if (elements.planViewport.hasPointerCapture(event.pointerId)) elements.planViewport.releasePointerCapture(event.pointerId);
+  dragState = null;
+  elements.planViewport.classList.remove("dragging");
+}
+
+elements.planViewport.addEventListener("pointerup", stopDragging);
+elements.planViewport.addEventListener("pointercancel", stopDragging);
+
+elements.dwgInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const extension = file.name.split(".").pop().toLowerCase();
+  elements.importStatus.classList.remove("error");
+
+  if (!["dwg", "dxf"].includes(extension)) {
+    elements.importStatus.textContent = "Format non pris en charge";
+    elements.importStatus.classList.add("error");
+    return;
+  }
+
+  if (extension === "dwg") {
+    const header = new TextDecoder("ascii").decode(await file.slice(0, 6).arrayBuffer());
+    if (!header.startsWith("AC10")) {
+      elements.importStatus.textContent = "Fichier DWG non reconnu";
+      elements.importStatus.classList.add("error");
+      return;
+    }
+  }
+
+  const metadata = {
+    name: file.name,
+    size: file.size,
+    extension,
+    layers: ["CHAMBRE", "SDB", "LOGGIA"],
+  };
+  localStorage.setItem("suivi-hotel-import-meta", JSON.stringify(metadata));
+  elements.importStatus.textContent = `${file.name} sélectionné`;
+  elements.importStatus.title = "Calques attendus : CHAMBRE, SDB, LOGGIA";
+});
 
 document.querySelector("#resetButton").addEventListener("click", () => {
   if (!window.confirm("Effacer tous les avancements enregistrés sur cet appareil ?")) return;

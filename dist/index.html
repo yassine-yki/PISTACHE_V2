@@ -18,6 +18,11 @@
         </div>
       </div>
       <div class="top-actions">
+        <label class="button secondary import-button">
+          Importer DWG
+          <input id="dwgInput" type="file" accept=".dwg,.dxf" />
+        </label>
+        <span class="import-status" id="importStatus"></span>
         <span class="save-state" id="saveState">Enregistré sur cet appareil</span>
         <button class="button secondary" id="resetButton" type="button">Réinitialiser</button>
       </div>
@@ -43,6 +48,11 @@
             </div>
           </div>
 
+          <label class="control-group room-control">
+            <span class="control-label">Chambre</span>
+            <select id="roomSelect" aria-label="Chambre sélectionnée"></select>
+          </label>
+
           <div class="control-group zone-control" aria-label="Zone suivie">
             <span class="control-label">Zone</span>
             <div class="segmented" id="globalZoneTabs">
@@ -59,7 +69,7 @@
 
           <div class="zoom-controls" aria-label="Zoom du plan">
             <button id="zoomOut" type="button" title="Réduire le plan" aria-label="Réduire le plan">−</button>
-            <input id="zoomRange" type="range" min="50" max="250" step="10" value="100" aria-label="Niveau de zoom" />
+            <input id="zoomRange" type="range" min="50" max="400" step="10" value="100" aria-label="Niveau de zoom" />
             <output id="zoomValue">100 %</output>
             <button id="zoomIn" type="button" title="Agrandir le plan" aria-label="Agrandir le plan">+</button>
             <button id="fitPlan" class="fit-plan" type="button" title="Afficher le plan entier">Ajuster</button>
@@ -73,7 +83,6 @@
             <div class="plan-image-crop">
               <img src="/assets/plan-r2.png" alt="Plan architectural recadré du niveau R+2" />
             </div>
-            <div class="room-zones" id="roomZones"></div>
           </div>
         </div>
       </section>

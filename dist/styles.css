@@ -88,6 +88,10 @@ h1 { font-size: 20px; line-height: 1.2; }
 .brand-block p { margin-top: 3px; color: var(--muted); font-size: 13px; }
 .top-actions { gap: 12px; }
 .save-state { color: var(--muted); font-size: 13px; }
+.import-button { display: inline-flex; align-items: center; cursor: pointer; }
+.import-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.import-status { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.import-status.error { color: var(--red); font-weight: 650; }
 
 .button {
   min-height: 38px;
@@ -155,7 +159,8 @@ h1 { font-size: 20px; line-height: 1.2; }
 .segmented button:disabled { opacity: .38; cursor: not-allowed; }
 
 .floor-control { width: 88px; }
-.floor-control select, .task-control select { min-height: 40px; padding: 0 34px 0 10px; }
+.floor-control select, .room-control select, .task-control select { min-height: 40px; padding: 0 34px 0 10px; }
+.room-control { width: 112px; }
 .task-control { min-width: 215px; }
 .type-control .segmented button { padding-inline: 9px; }
 
@@ -193,21 +198,28 @@ h1 { font-size: 20px; line-height: 1.2; }
 .summary-item { display: inline-flex; align-items: center; gap: 6px; }
 
 .plan-viewport {
+  position: relative;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: #dfe4e2;
-  padding: 16px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
+.plan-viewport.dragging { cursor: grabbing; }
+
 .plan-content {
-  position: relative;
-  width: 100%;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(100% - 32px);
   min-width: 0;
   aspect-ratio: 1.676;
-  margin: 0 auto;
   background: white;
   box-shadow: 0 3px 18px rgba(25, 40, 34, .13);
   transform-origin: top left;
+  will-change: transform;
 }
 
 .plan-image-crop {
@@ -226,96 +238,6 @@ h1 { font-size: 20px; line-height: 1.2; }
   height: 113.64%;
   user-select: none;
   pointer-events: none;
-}
-
-.room-zones { position: absolute; inset: 0; }
-
-.room-boundary {
-  position: absolute;
-  padding: 0;
-  overflow: hidden;
-  border: 1.5px solid rgba(20, 37, 31, .72);
-  border-radius: 2px;
-  background: transparent;
-  transform-origin: center;
-  transition: opacity .15s ease, box-shadow .15s ease, border-color .15s ease;
-}
-
-.room-boundary:hover { z-index: 5; border-color: var(--focus); box-shadow: 0 0 0 2px white, 0 0 0 4px var(--focus); }
-.room-boundary.selected { z-index: 6; border-color: #0c4163; box-shadow: 0 0 0 2px white, 0 0 0 5px #0c4163; }
-.room-boundary.filtered-out { opacity: .07; pointer-events: none; }
-.room-boundary.zone-unavailable { opacity: .16; }
-
-.zone-part {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  border-color: rgba(20, 37, 31, .56);
-  background: rgba(255, 255, 255, .08);
-  pointer-events: none;
-}
-
-.zone-part.active-zone {
-  background: transparent;
-  outline: 2px solid rgba(12, 65, 99, .82);
-  outline-offset: -2px;
-}
-
-.room-boundary.south .bathroom { inset: 0 0 auto 0; height: 28%; border-bottom: 1px solid; }
-.room-boundary.south .bedroom { inset: 28% 0 0 0; }
-.room-boundary.south.has-loggia .bedroom { bottom: 22%; }
-.room-boundary.south .loggia { inset: auto 0 0 0; height: 22%; border-top: 1px solid; }
-
-.room-boundary.north .loggia { inset: 0 0 auto 0; height: 22%; border-bottom: 1px solid; }
-.room-boundary.north .bedroom { inset: 0 0 28% 0; }
-.room-boundary.north.has-loggia .bedroom { top: 22%; }
-.room-boundary.north .bathroom { inset: auto 0 0 0; height: 28%; border-top: 1px solid; }
-
-.room-boundary.east .bedroom { inset: 0 28% 0 0; }
-.room-boundary.east .bathroom { inset: 0 0 0 auto; width: 28%; border-left: 1px solid; }
-.room-boundary.west .bathroom { inset: 0 auto 0 0; width: 28%; border-right: 1px solid; }
-.room-boundary.west .bedroom { inset: 0 0 0 28%; }
-
-.room-number {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  color: #10231c;
-  font-size: 10px;
-  font-weight: 900;
-  text-shadow: 0 0 3px white, 0 0 3px white, 0 0 3px white;
-  pointer-events: none;
-}
-
-.zone-label {
-  display: none;
-  padding: 1px 3px;
-  border-radius: 2px;
-  background: rgba(255,255,255,.78);
-  color: #283631;
-  font-size: 7px;
-  font-weight: 800;
-}
-
-.room-boundary.selected .zone-label { display: inline; }
-.room-boundary.selected .room-number { align-items: start; padding-top: 3px; }
-
-.room-boundary.blocked::after {
-  content: "!";
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  z-index: 3;
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: #222a27;
-  color: white;
-  font-size: 10px;
 }
 
 .detail-panel {
@@ -448,6 +370,7 @@ h3 { font-size: 18px; }
 
 @media (max-width: 520px) {
   .brand-block p { display: none; }
+  .import-status, .save-state { display: none; }
   h1 { font-size: 17px; }
   .button { padding-inline: 10px; }
   .controlbar, .detail-panel { padding: 14px; }
