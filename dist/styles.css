@@ -251,6 +251,7 @@ h1 { font-size: 20px; line-height: 1.2; }
 .dxf-zone:hover, .dxf-zone.selected { stroke-width: 2; fill-opacity: .5; }
 .dxf-zone.unassigned { fill: #aab8b3; stroke: #397c80; fill-opacity: .24; cursor: default; }
 .dxf-zone.unassigned:hover { stroke-width: 1.1; fill-opacity: .24; }
+.dxf-loggia-label { fill: #173c3e; paint-order: stroke; stroke: white; stroke-width: .12; font-weight: 700; pointer-events: none; }
 .dxf-zone.status-not-started { fill: #c94043; stroke: #9e292c; }
 .dxf-zone.status-in-progress { fill: #e38b22; stroke: #a75e0d; }
 .dxf-zone.status-done { fill: #16835d; stroke: #0e5e43; }

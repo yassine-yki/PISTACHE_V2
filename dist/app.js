@@ -25,8 +25,8 @@ const loggiaRooms = new Set([203, 206, 209, 210, 212, 214, 217, 227, 228, 229, 2
 
 const state = {
   selectedRoom: 203,
-  selectedZone: "bathroom",
-  selectedTask: "waterproofing",
+  selectedZone: "bedroom",
+  selectedTask: "partitions",
   selectedType: "all",
   zoom: 100,
   panX: 16,
@@ -215,13 +215,13 @@ function buildDxfModel(dxf, layoutBounds = null) {
     .filter((entity) => ["A-AREA-IDEN", "LOGGIA"].includes(normalizedLayer(entity.layer)) && ["TEXT", "MTEXT"].includes(entity.type))
     .map((entity) => {
       const label = cleanDxfText(entity.text);
-      const match = label.match(/^(?:CHAMBRE\s*[-:]?\s*)?(\d{3})$/i);
+      const match = label.match(/^(?:(?:CHAMBRE|LOGGIA)\s*[-:]?\s*)?(\d{3})(?!\d)(?:$|\^J|\\P)/i);
       return { point: entityPoint(entity), number: match ? Number(match[1]) : null };
     })
     .filter((label) => label.point && label.number >= 201 && label.number <= 240);
   const loggiaItems = loggias.map((shape) => {
     const numbers = [...new Set(loggiaLabels.filter((label) => pointInPolygon(label.point, shape.vertices)).map((label) => label.number))];
-    return { polygon: shape.vertices, number: numbers.length === 1 ? numbers[0] : null };
+    return { polygon: shape.vertices, number: numbers.length === 1 ? numbers[0] : null, center: polygonCenter(shape.vertices) };
   });
   const typeTexts = textEntities.filter((text) => /STANDARD|JUNIOR|EXECUTIVE|EXÉCUTIVE|SUITE/i.test(text.cleanText));
 
@@ -256,7 +256,7 @@ function renderDxfBase() {
   elements.dxfPlan.setAttribute("viewBox", `${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}`);
   const labelSize = Math.max(0.32, Math.min(0.55, height * 0.012));
   const labels = model.rooms.map((room) => `<text class="dxf-label" x="${numberValue(room.labelPoint.x)}" y="${numberValue(-room.labelPoint.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>`).join("");
-  elements.dxfPlan.innerHTML = `<g transform="scale(1 -1)">${model.architecture}</g><g id="dxfZoneLayer" transform="scale(1 -1)"></g><g>${labels}</g>`;
+  elements.dxfPlan.innerHTML = `<g transform="scale(1 -1)">${model.architecture}</g><g id="dxfZoneLayer" transform="scale(1 -1)"></g><g>${labels}</g><g id="dxfZoneLabels"></g>`;
   elements.planEmpty.hidden = true;
 }
 
@@ -270,7 +270,8 @@ function statusClass(record) {
 function renderDxfZones() {
   const model = state.dxfModel;
   const layer = document.querySelector("#dxfZoneLayer");
-  if (!model || !layer) return;
+  const labelLayer = document.querySelector("#dxfZoneLabels");
+  if (!model || !layer || !labelLayer) return;
   if (state.selectedZone === "loggia") {
     layer.innerHTML = model.loggias.map((loggia) => {
       const assigned = loggia.number !== null;
@@ -282,8 +283,13 @@ function renderDxfZones() {
       const label = assigned ? `Loggia de la chambre ${loggia.number}` : "Loggia non attribuée";
       return `<path class="dxf-zone ${zoneClass}${selectedClass}"${roomAttribute} d="${pointsPath(loggia.polygon, true)}"><title>${label}</title></path>`;
     }).join("");
+    const height = model.bounds.maxY - model.bounds.minY;
+    const labelSize = Math.max(0.32, Math.min(0.55, height * 0.012));
+    labelLayer.innerHTML = model.loggias.filter((loggia) => loggia.number !== null).map((loggia) =>
+      `<text class="dxf-loggia-label" x="${numberValue(loggia.center.x)}" y="${numberValue(-loggia.center.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${loggia.number}</text>`).join("");
     return;
   }
+  labelLayer.innerHTML = "";
   layer.innerHTML = model.rooms.map((room) => {
     const task = state.selectedTask || currentTasks()[0]?.id;
     const record = task ? getRecord(room.number, state.selectedZone, task) : { progress: 0, blocked: false };
