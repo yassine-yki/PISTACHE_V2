@@ -156,7 +156,33 @@ function entitySvg(entity, detailBounds) {
   return "";
 }
 
-function buildDxfModel(dxf) {
+function layoutViewBounds(source) {
+  const viewports = [...source.matchAll(/(?:^|\r?\n)\s*0\r?\nVIEWPORT\r?\n([\s\S]*?)(?=\r?\n\s*0\r?\n)/g)];
+  for (const viewport of viewports) {
+    const lines = viewport[1].split(/\r?\n/);
+    const groups = new Map();
+    for (let index = 0; index + 1 < lines.length; index += 2) {
+      groups.set(Number(lines[index].trim()), Number(lines[index + 1].trim()));
+    }
+    const paperWidth = groups.get(40);
+    const paperHeight = groups.get(41);
+    const viewHeight = groups.get(45);
+    const centerX = groups.get(12);
+    const centerY = groups.get(22);
+    if (groups.get(67) !== 1 || groups.get(69) <= 1 || !paperWidth || !paperHeight || !viewHeight || !Number.isFinite(centerX) || !Number.isFinite(centerY)) continue;
+    if (Math.abs(groups.get(51) || 0) > 0.001) continue;
+    const viewWidth = viewHeight * paperWidth / paperHeight;
+    return {
+      minX: centerX - viewWidth / 2,
+      maxX: centerX + viewWidth / 2,
+      minY: centerY - viewHeight / 2,
+      maxY: centerY + viewHeight / 2,
+    };
+  }
+  return null;
+}
+
+function buildDxfModel(dxf, layoutBounds = null) {
   const entities = (dxf.entities || []).filter((entity) => !entity.inPaperSpace);
   const roomShapes = entities.filter((entity) => normalizedLayer(entity.layer) === "CHAMBRE" && isPolygon(entity));
   const textEntities = entities
@@ -175,12 +201,13 @@ function buildDxfModel(dxf) {
   const width = rawBounds.maxX - rawBounds.minX;
   const height = rawBounds.maxY - rawBounds.minY;
   const padding = Math.max(2.5, Math.min(width, height) * 0.12);
-  const detailBounds = {
+  const labelBounds = {
     minX: rawBounds.minX - padding,
     maxX: rawBounds.maxX + padding,
     minY: rawBounds.minY - padding,
     maxY: rawBounds.maxY + padding,
   };
+  const detailBounds = layoutBounds || labelBounds;
 
   const bathrooms = entities.filter((entity) => normalizedLayer(entity.layer) === "SDB" && isPolygon(entity));
   const loggias = entities.filter((entity) => normalizedLayer(entity.layer) === "LOGGIA" && isPolygon(entity));
@@ -440,7 +467,7 @@ function setType(type) {
 
 function setZoom(value, anchorX = elements.planViewport.clientWidth / 2, anchorY = elements.planViewport.clientHeight / 2) {
   const oldScale = state.zoom / 100;
-  const nextZoom = Math.max(50, Math.min(400, Number(value)));
+  const nextZoom = Math.max(10, Math.min(400, Number(value)));
   const newScale = nextZoom / 100;
   state.panX = anchorX - ((anchorX - state.panX) * newScale / oldScale);
   state.panY = anchorY - ((anchorY - state.panY) * newScale / oldScale);
@@ -454,7 +481,7 @@ function fitPlan() {
   const planWidth = Math.max(1, viewportWidth - 32);
   const planHeight = planWidth / state.planAspect;
   const scale = Math.min(1, (viewportWidth - 32) / planWidth, (viewportHeight - 32) / planHeight);
-  state.zoom = Math.max(50, Math.floor(scale * 10) * 10);
+  state.zoom = Math.max(10, Math.floor(scale * 10) * 10);
   const fittedScale = state.zoom / 100;
   state.panX = (viewportWidth - planWidth * fittedScale) / 2;
   state.panY = (viewportHeight - planHeight * fittedScale) / 2;
@@ -544,8 +571,9 @@ elements.dwgInput.addEventListener("change", async (event) => {
 
   try {
     const parser = new window.DxfParser();
-    const dxf = parser.parseSync(await file.text());
-    const model = buildDxfModel(dxf);
+    const source = await file.text();
+    const dxf = parser.parseSync(source);
+    const model = buildDxfModel(dxf, layoutViewBounds(source));
     state.dxfModel = model;
     state.importedTypes = Object.fromEntries(model.rooms.map((room) => [room.number, room.typeText]));
     rooms = model.rooms.map((room) => ({ number: room.number }));
