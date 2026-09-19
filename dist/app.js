@@ -159,13 +159,22 @@ function entitySvg(entity, detailBounds) {
 function buildDxfModel(dxf) {
   const entities = (dxf.entities || []).filter((entity) => !entity.inPaperSpace);
   const roomShapes = entities.filter((entity) => normalizedLayer(entity.layer) === "CHAMBRE" && isPolygon(entity));
-  if (!roomShapes.length) throw new Error("Aucun contour fermé trouvé sur le calque Chambre");
+  const textEntities = entities
+    .filter((entity) => normalizedLayer(entity.layer) === "A-AREA-IDEN" && ["TEXT", "MTEXT"].includes(entity.type))
+    .map((entity) => ({ ...entity, point: entityPoint(entity), cleanText: cleanDxfText(entity.text) }))
+    .filter((entity) => entity.point);
+  const numberedTexts = [...new Map(textEntities.map((text) => {
+    const match = text.cleanText.match(/CHAMBRE\s*[-:]?\s*(\d{3})/i);
+    const number = match ? Number(match[1]) : null;
+    return number >= 201 && number <= 240 ? [number, { ...text, roomNumber: number }] : [null, null];
+  }).filter(([number]) => number)).values()].sort((first, second) => first.roomNumber - second.roomNumber);
 
-  const allRoomPoints = roomShapes.flatMap((entity) => entity.vertices);
-  const rawBounds = boundsFromPoints(allRoomPoints);
+  if (!numberedTexts.length) throw new Error("Aucun numéro CHAMBRE 201 à 240 trouvé dans A-AREA-IDEN");
+
+  const rawBounds = boundsFromPoints(numberedTexts.map((text) => text.point));
   const width = rawBounds.maxX - rawBounds.minX;
   const height = rawBounds.maxY - rawBounds.minY;
-  const padding = Math.max(1.5, Math.min(width, height) * 0.16);
+  const padding = Math.max(2.5, Math.min(width, height) * 0.12);
   const detailBounds = {
     minX: rawBounds.minX - padding,
     maxX: rawBounds.maxX + padding,
@@ -173,32 +182,26 @@ function buildDxfModel(dxf) {
     maxY: rawBounds.maxY + padding,
   };
 
-  const textEntities = entities
-    .filter((entity) => normalizedLayer(entity.layer) === "A-AREA-IDEN" && ["TEXT", "MTEXT"].includes(entity.type))
-    .map((entity) => ({ ...entity, point: entityPoint(entity), cleanText: cleanDxfText(entity.text) }))
-    .filter((entity) => entity.point);
   const bathrooms = entities.filter((entity) => normalizedLayer(entity.layer) === "SDB" && isPolygon(entity));
   const loggias = entities.filter((entity) => normalizedLayer(entity.layer) === "LOGGIA" && isPolygon(entity));
+  const typeTexts = textEntities.filter((text) => /STANDARD|JUNIOR|EXECUTIVE|EXÉCUTIVE|SUITE/i.test(text.cleanText));
 
-  const detectedRooms = roomShapes.map((entity) => {
-    const insideTexts = textEntities.filter((text) => pointInPolygon(text.point, entity.vertices));
-    const numberText = insideTexts.find((text) => /CHAMBRE\s*[-:]?\s*\d{3}/i.test(text.cleanText));
-    const match = numberText?.cleanText.match(/CHAMBRE\s*[-:]?\s*(\d{3})/i);
-    if (!match) return null;
-    const number = Number(match[1]);
-    const typeText = insideTexts.find((text) => /STANDARD|JUNIOR|EXECUTIVE|EXÉCUTIVE|SUITE/i.test(text.cleanText));
+  const detectedRooms = numberedTexts.map((numberText) => {
+    const polygonEntity = roomShapes.find((shape) => pointInPolygon(numberText.point, shape.vertices));
+    const nearestType = typeTexts
+      .map((text) => ({ text, distance: Math.hypot(text.point.x - numberText.point.x, text.point.y - numberText.point.y) }))
+      .sort((first, second) => first.distance - second.distance)[0];
+    const polygon = polygonEntity?.vertices || null;
     return {
-      number,
-      typeText: typeText?.cleanText || "",
-      polygon: entity.vertices,
-      center: polygonCenter(entity.vertices),
+      number: numberText.roomNumber,
+      typeText: nearestType?.distance < 2 ? nearestType.text.cleanText : "",
+      polygon,
+      center: polygon ? polygonCenter(polygon) : numberText.point,
       labelPoint: numberText.point,
-      bathrooms: bathrooms.filter((shape) => pointInPolygon(polygonCenter(shape.vertices), entity.vertices)).map((shape) => shape.vertices),
-      loggias: loggias.filter((shape) => pointInPolygon(polygonCenter(shape.vertices), entity.vertices)).map((shape) => shape.vertices),
+      bathrooms: polygon ? bathrooms.filter((shape) => pointInPolygon(polygonCenter(shape.vertices), polygon)).map((shape) => shape.vertices) : [],
+      loggias: polygon ? loggias.filter((shape) => pointInPolygon(polygonCenter(shape.vertices), polygon)).map((shape) => shape.vertices) : [],
     };
-  }).filter(Boolean).sort((first, second) => first.number - second.number);
-
-  if (!detectedRooms.length) throw new Error("Aucun numéro CHAMBRE xxx trouvé dans A-AREA-IDEN");
+  });
 
   const architecture = entities.map((entity) => entitySvg(entity, detailBounds)).join("");
   return { dxf, rooms: detectedRooms, bounds: detailBounds, architecture };
@@ -212,7 +215,7 @@ function renderDxfBase() {
   state.planAspect = width / height;
   elements.planContent.style.setProperty("--plan-aspect", state.planAspect);
   elements.dxfPlan.setAttribute("viewBox", `${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}`);
-  const labelSize = Math.max(0.38, height * 0.025);
+  const labelSize = Math.max(0.32, Math.min(0.55, height * 0.012));
   const labels = model.rooms.map((room) => `<text class="dxf-label" x="${numberValue(room.labelPoint.x)}" y="${numberValue(-room.labelPoint.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>`).join("");
   elements.dxfPlan.innerHTML = `<g transform="scale(1 -1)">${model.architecture}</g><g id="dxfZoneLayer" transform="scale(1 -1)"></g><g>${labels}</g>`;
   elements.planEmpty.hidden = true;
@@ -236,7 +239,7 @@ function renderDxfZones() {
     let paths = [];
     if (state.selectedZone === "bathroom") paths = room.bathrooms.map((polygon) => pointsPath(polygon, true));
     if (state.selectedZone === "loggia") paths = room.loggias.map((polygon) => pointsPath(polygon, true));
-    if (state.selectedZone === "bedroom") paths = [`${pointsPath(room.polygon, true)} ${[...room.bathrooms, ...room.loggias].map((polygon) => pointsPath(polygon, true)).join(" ")}`];
+    if (state.selectedZone === "bedroom" && room.polygon) paths = [`${pointsPath(room.polygon, true)} ${[...room.bathrooms, ...room.loggias].map((polygon) => pointsPath(polygon, true)).join(" ")}`];
     return paths.map((path) => `<path class="dxf-zone ${statusClass(record)}${activeClass}" data-room="${room.number}" d="${path}" fill-rule="evenodd"><title>Chambre ${room.number}</title></path>`).join("");
   }).join("");
 }
