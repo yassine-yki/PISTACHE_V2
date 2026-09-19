@@ -249,6 +249,8 @@ h1 { font-size: 20px; line-height: 1.2; }
 .dxf-detail { vector-effect: non-scaling-stroke; stroke: #a7b0ac; stroke-width: .22; fill: none; }
 .dxf-zone { vector-effect: non-scaling-stroke; stroke-width: 1.1; fill-opacity: .28; cursor: pointer; transition: fill-opacity .15s ease, stroke-width .15s ease; }
 .dxf-zone:hover, .dxf-zone.selected { stroke-width: 2; fill-opacity: .5; }
+.dxf-zone.unassigned { fill: #aab8b3; stroke: #397c80; fill-opacity: .24; cursor: default; }
+.dxf-zone.unassigned:hover { stroke-width: 1.1; fill-opacity: .24; }
 .dxf-zone.status-not-started { fill: #c94043; stroke: #9e292c; }
 .dxf-zone.status-in-progress { fill: #e38b22; stroke: #a75e0d; }
 .dxf-zone.status-done { fill: #16835d; stroke: #0e5e43; }

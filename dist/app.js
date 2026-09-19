@@ -211,6 +211,18 @@ function buildDxfModel(dxf, layoutBounds = null) {
 
   const bathrooms = entities.filter((entity) => normalizedLayer(entity.layer) === "SDB" && isPolygon(entity));
   const loggias = entities.filter((entity) => normalizedLayer(entity.layer) === "LOGGIA" && isPolygon(entity));
+  const loggiaLabels = entities
+    .filter((entity) => ["A-AREA-IDEN", "LOGGIA"].includes(normalizedLayer(entity.layer)) && ["TEXT", "MTEXT"].includes(entity.type))
+    .map((entity) => {
+      const label = cleanDxfText(entity.text);
+      const match = label.match(/^(?:CHAMBRE\s*[-:]?\s*)?(\d{3})$/i);
+      return { point: entityPoint(entity), number: match ? Number(match[1]) : null };
+    })
+    .filter((label) => label.point && label.number >= 201 && label.number <= 240);
+  const loggiaItems = loggias.map((shape) => {
+    const numbers = [...new Set(loggiaLabels.filter((label) => pointInPolygon(label.point, shape.vertices)).map((label) => label.number))];
+    return { polygon: shape.vertices, number: numbers.length === 1 ? numbers[0] : null };
+  });
   const typeTexts = textEntities.filter((text) => /STANDARD|JUNIOR|EXECUTIVE|EXÉCUTIVE|SUITE/i.test(text.cleanText));
 
   const detectedRooms = numberedTexts.map((numberText) => {
@@ -231,7 +243,7 @@ function buildDxfModel(dxf, layoutBounds = null) {
   });
 
   const architecture = entities.map((entity) => entitySvg(entity, detailBounds)).join("");
-  return { dxf, rooms: detectedRooms, bounds: detailBounds, architecture };
+  return { dxf, rooms: detectedRooms, loggias: loggiaItems, bounds: detailBounds, architecture };
 }
 
 function renderDxfBase() {
@@ -259,13 +271,25 @@ function renderDxfZones() {
   const model = state.dxfModel;
   const layer = document.querySelector("#dxfZoneLayer");
   if (!model || !layer) return;
+  if (state.selectedZone === "loggia") {
+    layer.innerHTML = model.loggias.map((loggia) => {
+      const assigned = loggia.number !== null;
+      const task = state.selectedTask;
+      const record = assigned && task ? getRecord(loggia.number, "loggia", task) : null;
+      const zoneClass = record ? statusClass(record) : "unassigned";
+      const selectedClass = assigned && loggia.number === state.selectedRoom ? " selected" : "";
+      const roomAttribute = assigned ? ` data-room="${loggia.number}"` : "";
+      const label = assigned ? `Loggia de la chambre ${loggia.number}` : "Loggia non attribuée";
+      return `<path class="dxf-zone ${zoneClass}${selectedClass}"${roomAttribute} d="${pointsPath(loggia.polygon, true)}"><title>${label}</title></path>`;
+    }).join("");
+    return;
+  }
   layer.innerHTML = model.rooms.map((room) => {
     const task = state.selectedTask || currentTasks()[0]?.id;
     const record = task ? getRecord(room.number, state.selectedZone, task) : { progress: 0, blocked: false };
     const activeClass = room.number === state.selectedRoom ? " selected" : "";
     let paths = [];
     if (state.selectedZone === "bathroom") paths = room.bathrooms.map((polygon) => pointsPath(polygon, true));
-    if (state.selectedZone === "loggia") paths = room.loggias.map((polygon) => pointsPath(polygon, true));
     if (state.selectedZone === "bedroom" && room.polygon) paths = [`${pointsPath(room.polygon, true)} ${[...room.bathrooms, ...room.loggias].map((polygon) => pointsPath(polygon, true)).join(" ")}`];
     return paths.map((path) => `<path class="dxf-zone ${statusClass(record)}${activeClass}" data-room="${room.number}" d="${path}" fill-rule="evenodd"><title>Chambre ${room.number}</title></path>`).join("");
   }).join("");
@@ -372,6 +396,14 @@ function filteredRooms() {
 
 function renderSummary() {
   const availableRooms = filteredRooms();
+  if (state.selectedZone === "loggia" && state.dxfModel) {
+    const total = state.dxfModel.loggias.length;
+    const unassigned = state.dxfModel.loggias.filter((loggia) => loggia.number === null).length;
+    elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${total}</strong> loggias</span>
+      <span class="summary-item"><strong>${unassigned}</strong> non attribuées</span>
+      <span class="summary-item">Tâches à définir</span>`;
+    return;
+  }
   if (!state.selectedTask) {
     elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> loggias</span><span class="summary-item">Tâches à définir</span>`;
     return;
@@ -448,10 +480,6 @@ function render() {
 }
 
 function setZone(zone) {
-  if (zone === "loggia" && !loggiaRooms.has(state.selectedRoom)) {
-    const firstLoggia = filteredRooms().find((room) => loggiaRooms.has(room.number)) || rooms.find((room) => loggiaRooms.has(room.number));
-    state.selectedRoom = firstLoggia.number;
-  }
   state.selectedZone = zone;
   normalizeTaskSelection();
   render();
@@ -461,7 +489,6 @@ function setType(type) {
   if (type !== "all" && !rooms.some((room) => roomTypeId(room.number) === type)) return;
   state.selectedType = type;
   if (!roomMatchesType(state.selectedRoom)) state.selectedRoom = rooms.find((room) => roomMatchesType(room.number)).number;
-  if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
   render();
 }
 
@@ -507,7 +534,6 @@ document.addEventListener("click", (event) => {
 elements.taskSelect.addEventListener("change", (event) => { state.selectedTask = event.target.value; render(); });
 elements.roomSelect.addEventListener("change", (event) => {
   state.selectedRoom = Number(event.target.value);
-  if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
   render();
 });
 elements.progressRange.addEventListener("input", (event) => {
@@ -578,10 +604,9 @@ elements.dwgInput.addEventListener("change", async (event) => {
     state.importedTypes = Object.fromEntries(model.rooms.map((room) => [room.number, room.typeText]));
     rooms = model.rooms.map((room) => ({ number: room.number }));
     loggiaRooms.clear();
-    model.rooms.filter((room) => room.loggias.length).forEach((room) => loggiaRooms.add(room.number));
+    model.loggias.filter((loggia) => loggia.number !== null).forEach((loggia) => loggiaRooms.add(loggia.number));
     state.selectedRoom = rooms[0].number;
     state.selectedType = "all";
-    if (state.selectedZone === "loggia" && !loggiaRooms.has(state.selectedRoom)) state.selectedZone = "bathroom";
     renderDxfBase();
     render();
     window.requestAnimationFrame(fitPlan);
