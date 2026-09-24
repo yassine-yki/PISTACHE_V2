@@ -1,1 +1,14 @@
-.sites-runtime/
+node_modules/
+*.tsbuildinfo
+.test-dist/
+
+# Generated portable packages and verification copies
+/Suivi-Hotel-R2-portable/
+/portable-verify/
+/Suivi-Hotel-R2-portable.zip
+/suivi-hotel-r2-v4-717f40a.tar.gz
+
+# Local credentials
+.env
+.env.*
+!.env.example

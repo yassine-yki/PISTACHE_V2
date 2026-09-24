@@ -1,26 +1,26 @@
-const STORAGE_KEY = "suivi-hotel-r2-v1";
+import { CURRENT_FLOOR, emptyProject, progressChangeAllowed, taskGroup, tasksByZone } from "./model.js";
+import { cleanDxfText, roomNumberFromText } from "./dxf-identification.js";
+import { createProjectRepository } from "./repositories/index.js";
+import { R2_ROOMS } from "./project-data.js";
+import { PROJECT_CATALOG } from "./project-catalog.js";
 
-const tasksByZone = {
-  bathroom: [
-    { id: "waterproofing", label: "Étanchéité SDB" },
-    { id: "water-test", label: "Test de mise en eau" },
-    { id: "wall-covering", label: "Revêtement mural" },
-    { id: "floor-covering", label: "Revêtement de sol" },
-    { id: "false-ceiling", label: "Faux plafond" },
-    { id: "aluminium", label: "Menuiserie aluminium" },
-    { id: "woodwork", label: "Menuiserie bois" },
-  ],
-  bedroom: [
-    { id: "partitions", label: "Cloisons" },
-    { id: "false-ceiling", label: "Faux plafond" },
-    { id: "paint", label: "Peinture" },
-  ],
-  loggia: [],
-};
+let activeProjectDefinition = null;
+let projectRepository = null;
+let project = emptyProject();
+let saveQueue = Promise.resolve();
 
-let rooms = Array.from({ length: 40 }, (_, index) => ({ number: 201 + index }));
-const juniorRooms = new Set([203, 206, 209, 210, 212, 217, 227, 235]);
-const executiveRooms = new Set([214]);
+function persistProject() {
+  if (!projectRepository) return Promise.resolve();
+  saveQueue = saveQueue
+    .then(() => projectRepository.save(project))
+    .catch((error) => {
+      console.error("Échec de sauvegarde", error);
+    });
+  return saveQueue;
+}
+
+const roomDefinitions = new Map(R2_ROOMS.map((room) => [room.number, room]));
+let rooms = R2_ROOMS;
 const loggiaRooms = new Set([203, 206, 209, 210, 212, 214, 217, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236]);
 
 const state = {
@@ -28,13 +28,18 @@ const state = {
   selectedZone: "bedroom",
   selectedTask: "partitions",
   selectedType: "all",
+  selectedBlock: "all",
+  taskQuery: "",
+  correctionAuthorization: null,
+  correctionPanelOpen: false,
+  progressRuleMessage: "",
   zoom: 100,
   panX: 16,
   panY: 16,
   planAspect: 1.676,
   dxfModel: null,
   importedTypes: {},
-  records: loadRecords(),
+  records: project.floors[CURRENT_FLOOR].records,
 };
 
 const elements = {
@@ -43,7 +48,6 @@ const elements = {
   dxfPlan: document.querySelector("#dxfPlan"),
   planEmpty: document.querySelector("#planEmpty"),
   roomSelect: document.querySelector("#roomSelect"),
-  dwgInput: document.querySelector("#dwgInput"),
   importStatus: document.querySelector("#importStatus"),
   taskSelect: document.querySelector("#taskSelect"),
   summaryStrip: document.querySelector("#summaryStrip"),
@@ -61,20 +65,25 @@ const elements = {
   endDateInput: document.querySelector("#endDateInput"),
   zoomRange: document.querySelector("#zoomRange"),
   zoomValue: document.querySelector("#zoomValue"),
-  saveState: document.querySelector("#saveState"),
+  projectDialog: document.querySelector("#projectDialog"),
+  projectList: document.querySelector("#projectList"),
+  projectSubtitle: document.querySelector("#projectSubtitle"),
+  taskSearch: document.querySelector("#taskSearch"),
+  taskLock: document.querySelector("#taskLock"),
+  correctionTrigger: document.querySelector("#correctionTrigger"),
+  correctionPanel: document.querySelector("#correctionPanel"),
+  correctionReason: document.querySelector("#correctionReason"),
+  correctionNote: document.querySelector("#correctionNote"),
+  correctionError: document.querySelector("#correctionError"),
+  authorizeCorrection: document.querySelector("#authorizeCorrection"),
+  cancelCorrection: document.querySelector("#cancelCorrection"),
+  correctionAuthorized: document.querySelector("#correctionAuthorized"),
+  correctionHistory: document.querySelector("#correctionHistory"),
+  progressRuleMessage: document.querySelector("#progressRuleMessage"),
 };
 
 function normalizedLayer(name) {
   return String(name || "").trim().toUpperCase();
-}
-
-function cleanDxfText(value) {
-  return String(value || "")
-    .replace(/\\P/g, " ")
-    .replace(/\\[A-Za-z][^;]*;/g, "")
-    .replace(/[{}]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function entityPoint(entity) {
@@ -147,8 +156,22 @@ function curvedPoints(entity) {
   });
 }
 
-function entitySvg(entity, detailBounds) {
-  if (entity.inPaperSpace || !boundsIntersect(entityBounds(entity), detailBounds)) return "";
+function entitySvg(entity, detailBounds, blocks, ancestors = []) {
+  if (entity.inPaperSpace) return "";
+  if (entity.type === "INSERT" || entity.type === "DIMENSION") {
+    const name = entity.type === "INSERT" ? entity.name : entity.block;
+    const block = blocks[name];
+    if (!block || ancestors.includes(name) || ancestors.length >= 8) return "";
+    const content = (block.entities || []).map((part) => entitySvg(part, null, blocks, [...ancestors, name])).join("");
+    if (!content) return "";
+    if (entity.type === "DIMENSION") return `<g>${content}</g>`;
+    const position = entity.position || { x: 0, y: 0 };
+    const base = block.position || { x: 0, y: 0 };
+    const mirror = entity.extrusionDirection?.z < 0 ? "scale(-1 1) " : "";
+    const transform = `${mirror}translate(${numberValue(position.x)} ${numberValue(position.y)}) rotate(${numberValue(entity.rotation || 0)}) scale(${numberValue(entity.xScale || 1)} ${numberValue(entity.yScale || 1)}) translate(${numberValue(-base.x)} ${numberValue(-base.y)})`;
+    return `<g transform="${transform}">${content}</g>`;
+  }
+  if (detailBounds && !boundsIntersect(entityBounds(entity), detailBounds)) return "";
   if (entity.type === "LINE") return `<path class="dxf-detail" d="${pointsPath(entity.vertices)}" />`;
   if (["LWPOLYLINE", "POLYLINE"].includes(entity.type)) return `<path class="dxf-detail" d="${pointsPath(entity.vertices, entity.shape)}" />`;
   if (["ARC", "CIRCLE"].includes(entity.type) && entity.center) return `<path class="dxf-detail" d="${pointsPath(curvedPoints(entity), entity.type === "CIRCLE")}" />`;
@@ -190,8 +213,7 @@ function buildDxfModel(dxf, layoutBounds = null) {
     .map((entity) => ({ ...entity, point: entityPoint(entity), cleanText: cleanDxfText(entity.text) }))
     .filter((entity) => entity.point);
   const numberedTexts = [...new Map(textEntities.map((text) => {
-    const match = text.cleanText.match(/CHAMBRE\s*[-:]?\s*(\d{3})/i);
-    const number = match ? Number(match[1]) : null;
+    const number = roomNumberFromText(text.cleanText);
     return number >= 201 && number <= 240 ? [number, { ...text, roomNumber: number }] : [null, null];
   }).filter(([number]) => number)).values()].sort((first, second) => first.roomNumber - second.roomNumber);
 
@@ -242,8 +264,16 @@ function buildDxfModel(dxf, layoutBounds = null) {
     };
   });
 
-  const architecture = entities.map((entity) => entitySvg(entity, detailBounds)).join("");
-  return { dxf, rooms: detectedRooms, loggias: loggiaItems, bounds: detailBounds, architecture };
+  const architecture = entities.map((entity) => entitySvg(entity, detailBounds, dxf.blocks || {})).join("");
+  const annotations = textEntities
+    .filter((entity) => boundsIntersect({ minX: entity.point.x, maxX: entity.point.x, minY: entity.point.y, maxY: entity.point.y }, detailBounds))
+    .filter((entity) => !/^(?:CHAMBRE|LOGGIA)\s*\d{3}/i.test(entity.cleanText))
+    .map((entity) => `<text class="dxf-annotation" x="${numberValue(entity.point.x)}" y="${numberValue(-entity.point.y)}" font-size="${numberValue(Math.max(0.32, entity.height || 0.2))}">${escapeSvgText(entity.cleanText)}</text>`).join("");
+  return { dxf, rooms: detectedRooms, loggias: loggiaItems, bounds: detailBounds, architecture, annotations };
+}
+
+function escapeSvgText(value) {
+  return String(value).replace(/\^J/g, " ").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function renderDxfBase() {
@@ -255,8 +285,16 @@ function renderDxfBase() {
   elements.planContent.style.setProperty("--plan-aspect", state.planAspect);
   elements.dxfPlan.setAttribute("viewBox", `${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}`);
   const labelSize = Math.max(0.32, Math.min(0.55, height * 0.012));
-  const labels = model.rooms.map((room) => `<text class="dxf-label" x="${numberValue(room.labelPoint.x)}" y="${numberValue(-room.labelPoint.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>`).join("");
-  elements.dxfPlan.innerHTML = `<g transform="scale(1 -1)">${model.architecture}</g><g id="dxfZoneLayer" transform="scale(1 -1)"></g><g>${labels}</g><g id="dxfZoneLabels"></g>`;
+  const labels = model.rooms.map((room) => {
+    const x = numberValue(room.labelPoint.x);
+    const y = numberValue(-room.labelPoint.y);
+    return `<g class="dxf-room-marker" data-room-marker data-room="${room.number}" role="button" tabindex="0" aria-label="Chambre ${room.number}">
+      <circle class="dxf-room-hit" cx="${x}" cy="${y}" r="${numberValue(labelSize * 1.8)}" />
+      <text class="dxf-label" x="${x}" y="${y}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>
+      <title>Chambre ${room.number}</title>
+    </g>`;
+  }).join("");
+  elements.dxfPlan.innerHTML = `<g transform="scale(1 -1)">${model.architecture}</g><g id="dxfZoneLayer" transform="scale(1 -1)"></g><g>${model.annotations}${labels}</g><g id="dxfZoneLabels"></g>`;
   elements.planEmpty.hidden = true;
 }
 
@@ -277,7 +315,8 @@ function renderDxfZones() {
       const assigned = loggia.number !== null;
       const task = state.selectedTask;
       const record = assigned && task ? getRecord(loggia.number, "loggia", task) : null;
-      const zoneClass = record ? statusClass(record) : "unassigned";
+      const zoneClass = (state.selectedType !== "all" || state.selectedBlock !== "all") && (!assigned || !roomMatchesFilters(loggia.number))
+        ? "filtered-out" : record ? statusClass(record) : "unassigned";
       const selectedClass = assigned && loggia.number === state.selectedRoom ? " selected" : "";
       const roomAttribute = assigned ? ` data-room="${loggia.number}"` : "";
       const label = assigned ? `Loggia de la chambre ${loggia.number}` : "Loggia non attribuée";
@@ -286,7 +325,7 @@ function renderDxfZones() {
     const height = model.bounds.maxY - model.bounds.minY;
     const labelSize = Math.max(0.32, Math.min(0.55, height * 0.012));
     labelLayer.innerHTML = model.loggias.filter((loggia) => loggia.number !== null).map((loggia) =>
-      `<text class="dxf-loggia-label" x="${numberValue(loggia.center.x)}" y="${numberValue(-loggia.center.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${loggia.number}</text>`).join("");
+      `<text class="dxf-loggia-label${roomMatchesFilters(loggia.number) ? "" : " filtered-out"}" x="${numberValue(loggia.center.x)}" y="${numberValue(-loggia.center.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${loggia.number}</text>`).join("");
     return;
   }
   labelLayer.innerHTML = "";
@@ -297,50 +336,72 @@ function renderDxfZones() {
     let paths = [];
     if (state.selectedZone === "bathroom") paths = room.bathrooms.map((polygon) => pointsPath(polygon, true));
     if (state.selectedZone === "bedroom" && room.polygon) paths = [`${pointsPath(room.polygon, true)} ${[...room.bathrooms, ...room.loggias].map((polygon) => pointsPath(polygon, true)).join(" ")}`];
-    return paths.map((path) => `<path class="dxf-zone ${statusClass(record)}${activeClass}" data-room="${room.number}" d="${path}" fill-rule="evenodd"><title>Chambre ${room.number}</title></path>`).join("");
+    const zoneClass = roomMatchesFilters(room.number) ? statusClass(record) : "filtered-out";
+    return paths.map((path) => `<path class="dxf-zone ${zoneClass}${activeClass}" data-room="${room.number}" d="${path}" fill-rule="evenodd"><title>Chambre ${room.number}</title></path>`).join("");
   }).join("");
-}
-
-function loadRecords() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
-  catch { return {}; }
 }
 
 function getRecord(room, zone, task) {
   return state.records[`${room}:${zone}:${task}`] || { progress: 0, blocked: false, note: "", startDate: "", endDate: "" };
 }
 
+function resetCorrectionState() {
+  state.correctionAuthorization = null;
+  state.correctionPanelOpen = false;
+  state.progressRuleMessage = "";
+  elements.correctionReason.value = "";
+  elements.correctionNote.value = "";
+  elements.correctionError.hidden = true;
+}
+
 function updateRecord(changes) {
   const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
-  state.records[key] = { ...getRecord(state.selectedRoom, state.selectedZone, state.selectedTask), ...changes };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records));
-  elements.saveState.textContent = "Enregistré à l'instant";
-  window.setTimeout(() => { elements.saveState.textContent = "Enregistré sur cet appareil"; }, 1400);
+  const current = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
+  if (current.progress >= 100 && !state.correctionAuthorization) {
+    state.progressRuleMessage = "Cette tâche terminée est verrouillée. Signalez une correction pour la modifier.";
+    renderEditor();
+    return;
+  }
+  state.records[key] = { ...current, ...changes };
+  void persistProject();
   render();
 }
 
 function updateProgress(value) {
   const progress = Math.max(0, Math.min(100, Number(value || 0)));
   const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
-  state.records[key] = { ...getRecord(state.selectedRoom, state.selectedZone, state.selectedTask), progress };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records));
+  const current = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
+  if (!progressChangeAllowed(current.progress, progress, Boolean(state.correctionAuthorization))) {
+    state.progressRuleMessage = current.progress >= 100
+      ? "Cette tâche terminée est verrouillée. Signalez une correction pour la modifier."
+      : "La diminution est interdite sans signalement d'une correction.";
+    renderEditor();
+    return;
+  }
+  const correction = progress < current.progress ? {
+    lastCorrectionReason: state.correctionAuthorization.reason,
+    lastCorrectionNote: state.correctionAuthorization.note,
+    correctedAt: new Date().toISOString(),
+  } : {};
+  state.records[key] = { ...current, ...correction, progress };
+  if (progress < current.progress || progress >= 100) resetCorrectionState();
+  else state.progressRuleMessage = "";
+  void persistProject();
   elements.percentOutput.textContent = `${progress} %`;
   elements.percentInput.value = progress;
   elements.progressRange.value = progress;
-  elements.saveState.textContent = "Enregistré à l'instant";
-  window.setTimeout(() => { elements.saveState.textContent = "Enregistré sur cet appareil"; }, 1400);
   renderSummary();
   renderTaskList();
   renderDxfZones();
 }
 
 function roomTypeId(number) {
+  const configuredType = rooms.find((room) => room.number === number)?.roomType;
+  if (configuredType) return configuredType;
   const importedType = state.importedTypes[number] || "";
   if (/EXECUTIVE|EXÉCUTIVE/i.test(importedType)) return "executive";
   if (/JUNIOR|SUITE/i.test(importedType)) return "junior";
   if (/STANDARD/i.test(importedType)) return "standard";
-  if (executiveRooms.has(number)) return "executive";
-  if (juniorRooms.has(number)) return "junior";
   return "standard";
 }
 
@@ -350,6 +411,15 @@ function roomType(number) {
 
 function roomMatchesType(number) {
   return state.selectedType === "all" || roomTypeId(number) === state.selectedType;
+}
+
+function roomMatchesBlock(number) {
+  const blockId = rooms.find((room) => room.number === number)?.blockId;
+  return state.selectedBlock === "all" || blockId === state.selectedBlock;
+}
+
+function roomMatchesFilters(number) {
+  return roomMatchesType(number) && roomMatchesBlock(number);
 }
 
 function currentTasks() { return tasksByZone[state.selectedZone]; }
@@ -366,12 +436,21 @@ function normalizeTaskSelection() {
 function renderTypeTabs() {
   document.querySelectorAll("[data-type]").forEach((button) => {
     button.classList.toggle("active", button.dataset.type === state.selectedType);
-    button.disabled = button.dataset.type !== "all" && !rooms.some((room) => roomTypeId(room.number) === button.dataset.type);
+    button.classList.toggle("filtered-out", state.selectedType !== "all" && button.dataset.type !== "all" && button.dataset.type !== state.selectedType);
+    button.disabled = button.dataset.type !== "all" && !rooms.some((room) => roomMatchesBlock(room.number) && roomTypeId(room.number) === button.dataset.type);
+  });
+}
+
+function renderBlockTabs() {
+  document.querySelectorAll("[data-block]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.block === state.selectedBlock);
+    button.classList.toggle("filtered-out", state.selectedBlock !== "all" && button.dataset.block !== "all" && button.dataset.block !== state.selectedBlock);
+    button.disabled = button.dataset.block !== "all" && !rooms.some((room) => room.blockId === button.dataset.block && roomMatchesType(room.number));
   });
 }
 
 function renderRoomSelect() {
-  const options = rooms.filter((room) => roomMatchesType(room.number));
+  const options = rooms.filter((room) => roomMatchesFilters(room.number));
   elements.roomSelect.innerHTML = options.map((room) => `<option value="${room.number}">${room.number} - ${roomType(room.number)}</option>`).join("");
   elements.roomSelect.value = String(state.selectedRoom);
 }
@@ -389,37 +468,31 @@ function renderZoneTabs() {
 
 function renderTaskSelect() {
   const tasks = currentTasks();
-  elements.taskSelect.innerHTML = tasks.length
-    ? tasks.map((task) => `<option value="${task.id}">${task.label}</option>`).join("")
+  const groups = new Map();
+  for (const task of tasks) {
+    const group = taskGroup(state.selectedZone, task.sourceColumn);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(task);
+  }
+  elements.taskSelect.innerHTML = tasks.length ? [...groups.entries()].map(([group, groupTasks]) =>
+    `<optgroup label="${group}">${groupTasks.map((task) => `<option value="${task.id}">${task.label}</option>`).join("")}</optgroup>`).join("")
     : '<option value="">Tâches à définir</option>';
   elements.taskSelect.disabled = !tasks.length;
   elements.taskSelect.value = state.selectedTask;
 }
 
 function filteredRooms() {
-  return rooms.filter((room) => roomMatchesType(room.number) && (state.selectedZone !== "loggia" || loggiaRooms.has(room.number)));
+  return rooms.filter((room) => roomMatchesFilters(room.number) && (state.selectedZone !== "loggia" || loggiaRooms.has(room.number)));
 }
 
 function renderSummary() {
   const availableRooms = filteredRooms();
-  if (state.selectedZone === "loggia" && state.dxfModel) {
-    const total = state.dxfModel.loggias.length;
-    const unassigned = state.dxfModel.loggias.filter((loggia) => loggia.number === null).length;
-    elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${total}</strong> loggias</span>
-      <span class="summary-item"><strong>${unassigned}</strong> non attribuées</span>
-      <span class="summary-item">Tâches à définir</span>`;
-    return;
-  }
-  if (!state.selectedTask) {
-    elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> loggias</span><span class="summary-item">Tâches à définir</span>`;
-    return;
-  }
   const records = availableRooms.map((room) => getRecord(room.number, state.selectedZone, state.selectedTask));
   const done = records.filter((record) => record.progress >= 100).length;
   const inProgress = records.filter((record) => record.progress > 0 && record.progress < 100).length;
   const blocked = records.filter((record) => record.blocked).length;
   const notStarted = records.filter((record) => record.progress === 0).length;
-  elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> chambres</span>
+  elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> ${state.selectedZone === "loggia" ? "loggias" : "chambres"}</span>
     <span class="summary-item"><strong>${done}</strong> terminées</span>
     <span class="summary-item"><strong>${inProgress}</strong> en cours</span>
     <span class="summary-item"><strong>${notStarted}</strong> non commencées</span>
@@ -439,16 +512,29 @@ function renderTaskList() {
     return;
   }
   elements.taskEditor.hidden = false;
-  elements.taskList.innerHTML = tasks.map((task) => {
-    const record = getRecord(state.selectedRoom, state.selectedZone, task.id);
-    const active = task.id === state.selectedTask ? " active" : "";
-    const complete = record.progress >= 100 ? " complete" : "";
-    return `<button class="task-row${active}" type="button" data-task="${task.id}">
-      <span class="task-name">${task.label}</span><span class="task-percent">${record.progress} %</span>
-      ${record.blocked ? '<span class="blocked-tag">Bloquée</span>' : ""}
-      <span class="task-track"><i class="${complete}" style="width:${record.progress}%"></i></span>
-    </button>`;
-  }).join("");
+  const query = state.taskQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const visibleTasks = tasks.filter((task) => task.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(query));
+  const groups = new Map();
+  for (const task of visibleTasks) {
+    const group = taskGroup(state.selectedZone, task.sourceColumn);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(task);
+  }
+  elements.taskSearch.value = state.taskQuery;
+  elements.taskList.innerHTML = groups.size ? [...groups.entries()].map(([group, groupTasks]) => `
+    <section class="task-group">
+      <h3>${group}</h3>
+      <div class="task-group-items">${groupTasks.map((task) => {
+        const record = getRecord(state.selectedRoom, state.selectedZone, task.id);
+        const active = task.id === state.selectedTask ? " active" : "";
+        const complete = record.progress >= 100 ? " complete" : "";
+        return `<button class="task-row${active}" type="button" data-task="${task.id}">
+          <span class="task-name">${task.label}</span><span class="task-percent">${record.progress} %</span>
+          ${record.blocked ? '<span class="blocked-tag">Bloquée</span>' : ""}
+          <span class="task-track"><i class="${complete}" style="width:${record.progress}%"></i></span>
+        </button>`;
+      }).join("")}</div>
+    </section>`).join("") : '<div class="empty-state">Aucune tâche trouvée.</div>';
 }
 
 function renderEditor() {
@@ -463,6 +549,28 @@ function renderEditor() {
   elements.noteInput.value = record.note;
   elements.startDateInput.value = record.startDate;
   elements.endDateInput.value = record.endDate;
+  const correctionAuthorized = Boolean(state.correctionAuthorization);
+  const locked = record.progress >= 100 && !correctionAuthorized;
+  elements.taskLock.hidden = !locked;
+  elements.correctionTrigger.hidden = record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
+  elements.correctionPanel.hidden = !state.correctionPanelOpen;
+  elements.correctionAuthorized.hidden = !correctionAuthorized;
+  elements.correctionAuthorized.textContent = correctionAuthorized
+    ? `Correction autorisée : ${state.correctionAuthorization.reason === "input-error" ? "Erreur de saisie" : "Élément oublié ou ajouté"}`
+    : "";
+  elements.correctionHistory.hidden = !record.lastCorrectionReason;
+  elements.correctionHistory.textContent = record.lastCorrectionReason
+    ? `Dernière correction : ${record.lastCorrectionReason === "input-error" ? "Erreur de saisie" : "Élément oublié ou ajouté"} - ${record.lastCorrectionNote || "Sans détail"}`
+    : "";
+  elements.progressRuleMessage.hidden = !state.progressRuleMessage;
+  elements.progressRuleMessage.textContent = state.progressRuleMessage;
+  elements.progressRange.disabled = locked;
+  elements.percentInput.disabled = locked;
+  elements.blockedInput.disabled = locked;
+  elements.noteInput.disabled = locked;
+  elements.startDateInput.disabled = locked;
+  elements.endDateInput.disabled = locked;
+  document.querySelectorAll("[data-progress]").forEach((button) => { button.disabled = locked; });
 }
 
 function renderZoom() {
@@ -471,8 +579,17 @@ function renderZoom() {
   elements.zoomValue.textContent = `${Math.round(state.zoom)} %`;
 }
 
+function renderRoomSelection() {
+  elements.dxfPlan.querySelectorAll("[data-room-marker]").forEach((marker) => {
+    const number = Number(marker.dataset.room);
+    marker.classList.toggle("selected", number === state.selectedRoom);
+    marker.classList.toggle("filtered-out", !roomMatchesFilters(number));
+  });
+}
+
 function render() {
   normalizeTaskSelection();
+  renderBlockTabs();
   renderTypeTabs();
   renderRoomSelect();
   renderZoneTabs();
@@ -482,19 +599,57 @@ function render() {
   renderTaskList();
   renderEditor();
   renderDxfZones();
+  renderRoomSelection();
   renderZoom();
 }
 
+function centerOnRoom(number) {
+  const model = state.dxfModel;
+  const room = model?.rooms.find((item) => item.number === number);
+  if (!room) return;
+  const width = model.bounds.maxX - model.bounds.minX;
+  const height = model.bounds.maxY - model.bounds.minY;
+  const planX = (room.labelPoint.x - model.bounds.minX) / width * elements.planContent.clientWidth;
+  const planY = (model.bounds.maxY - room.labelPoint.y) / height * elements.planContent.clientHeight;
+  state.zoom = Math.max(state.zoom, 170);
+  const scale = state.zoom / 100;
+  state.panX = elements.planViewport.clientWidth / 2 - planX * scale;
+  state.panY = elements.planViewport.clientHeight / 2 - planY * scale;
+  renderZoom();
+}
+
+function selectRoom(number, center = false) {
+  if (!rooms.some((room) => room.number === number)) return;
+  resetCorrectionState();
+  state.selectedRoom = number;
+  if (!roomMatchesType(number)) state.selectedType = "all";
+  render();
+  if (center) centerOnRoom(number);
+}
+
 function setZone(zone) {
+  resetCorrectionState();
   state.selectedZone = zone;
+  state.taskQuery = "";
   normalizeTaskSelection();
   render();
 }
 
 function setType(type) {
-  if (type !== "all" && !rooms.some((room) => roomTypeId(room.number) === type)) return;
+  if (type !== "all" && !rooms.some((room) => roomMatchesBlock(room.number) && roomTypeId(room.number) === type)) return;
+  resetCorrectionState();
   state.selectedType = type;
-  if (!roomMatchesType(state.selectedRoom)) state.selectedRoom = rooms.find((room) => roomMatchesType(room.number)).number;
+  const changedRoom = !roomMatchesFilters(state.selectedRoom);
+  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number)).number;
+  render();
+}
+
+function setBlock(block) {
+  if (block !== "all" && !rooms.some((room) => room.blockId === block && roomMatchesType(room.number))) return;
+  resetCorrectionState();
+  state.selectedBlock = block;
+  const changedRoom = !roomMatchesFilters(state.selectedRoom);
+  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number)).number;
   render();
 }
 
@@ -522,30 +677,68 @@ function fitPlan() {
 }
 
 document.addEventListener("click", (event) => {
+  if (suppressPlanClick && event.target.closest("#planViewport")) {
+    suppressPlanClick = false;
+    return;
+  }
   const typeButton = event.target.closest("[data-type]");
   if (typeButton) setType(typeButton.dataset.type);
+  const blockButton = event.target.closest("[data-block]");
+  if (blockButton) setBlock(blockButton.dataset.block);
   const zoneButton = event.target.closest("[data-zone]");
   if (zoneButton && !zoneButton.disabled) setZone(zoneButton.dataset.zone);
   const roomShape = event.target.closest("[data-room]");
-  if (roomShape) {
-    state.selectedRoom = Number(roomShape.dataset.room);
-    render();
-  }
+  if (roomShape) selectRoom(Number(roomShape.dataset.room));
   const taskButton = event.target.closest("[data-task]");
-  if (taskButton) { state.selectedTask = taskButton.dataset.task; render(); }
+  if (taskButton) { resetCorrectionState(); state.selectedTask = taskButton.dataset.task; render(); }
   const quickButton = event.target.closest("[data-progress]");
-  if (quickButton) updateRecord({ progress: Number(quickButton.dataset.progress) });
+  if (quickButton) updateProgress(quickButton.dataset.progress);
 });
 
-elements.taskSelect.addEventListener("change", (event) => { state.selectedTask = event.target.value; render(); });
-elements.roomSelect.addEventListener("change", (event) => {
-  state.selectedRoom = Number(event.target.value);
-  render();
+document.addEventListener("keydown", (event) => {
+  const marker = event.target.closest?.("[data-room-marker]");
+  if (marker && ["Enter", " "].includes(event.key)) {
+    event.preventDefault();
+    selectRoom(Number(marker.dataset.room));
+  }
 });
-elements.progressRange.addEventListener("input", (event) => {
+
+elements.taskSelect.addEventListener("change", (event) => { resetCorrectionState(); state.selectedTask = event.target.value; render(); });
+elements.taskSearch.addEventListener("input", (event) => {
+  state.taskQuery = event.target.value;
+  renderTaskList();
+});
+elements.correctionTrigger.addEventListener("click", () => {
+  state.correctionPanelOpen = true;
+  state.progressRuleMessage = "";
+  elements.correctionError.hidden = true;
+  renderEditor();
+});
+elements.authorizeCorrection.addEventListener("click", () => {
+  const reason = elements.correctionReason.value;
+  const note = elements.correctionNote.value.trim();
+  if (!reason || !note) {
+    elements.correctionError.textContent = "Choisissez un motif et décrivez la correction.";
+    elements.correctionError.hidden = false;
+    return;
+  }
+  state.correctionAuthorization = { reason, note };
+  state.correctionPanelOpen = false;
+  state.progressRuleMessage = "Vous pouvez maintenant saisir une valeur inférieure.";
+  elements.correctionError.hidden = true;
+  renderEditor();
+});
+elements.cancelCorrection.addEventListener("click", () => {
+  resetCorrectionState();
+  renderEditor();
+});
+elements.roomSelect.addEventListener("change", (event) => {
+  selectRoom(Number(event.target.value), true);
+});
+elements.progressRange.addEventListener("change", (event) => {
   updateProgress(event.target.value);
 });
-elements.percentInput.addEventListener("input", (event) => updateProgress(event.target.value));
+elements.percentInput.addEventListener("change", (event) => updateProgress(event.target.value));
 elements.blockedInput.addEventListener("change", (event) => updateRecord({ blocked: event.target.checked }));
 elements.noteInput.addEventListener("change", (event) => updateRecord({ note: event.target.value.trim() }));
 elements.startDateInput.addEventListener("change", (event) => updateRecord({ startDate: event.target.value }));
@@ -561,16 +754,22 @@ elements.planViewport.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 let dragState = null;
+let suppressPlanClick = false;
 
 elements.planViewport.addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
-  dragState = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY };
-  elements.planViewport.setPointerCapture(event.pointerId);
-  elements.planViewport.classList.add("dragging");
+  dragState = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY, moved: false };
 });
 
 elements.planViewport.addEventListener("pointermove", (event) => {
   if (!dragState) return;
+  const distance = Math.hypot(event.clientX - dragState.x, event.clientY - dragState.y);
+  if (!dragState.moved && distance < 4) return;
+  if (!dragState.moved) {
+    dragState.moved = true;
+    elements.planViewport.setPointerCapture(event.pointerId);
+    elements.planViewport.classList.add("dragging");
+  }
   state.panX = dragState.panX + event.clientX - dragState.x;
   state.panY = dragState.panY + event.clientY - dragState.y;
   renderZoom();
@@ -579,6 +778,10 @@ elements.planViewport.addEventListener("pointermove", (event) => {
 function stopDragging(event) {
   if (!dragState) return;
   if (elements.planViewport.hasPointerCapture(event.pointerId)) elements.planViewport.releasePointerCapture(event.pointerId);
+  if (dragState.moved) {
+    suppressPlanClick = true;
+    window.setTimeout(() => { suppressPlanClick = false; }, 0);
+  }
   dragState = null;
   elements.planViewport.classList.remove("dragging");
 }
@@ -586,29 +789,24 @@ function stopDragging(event) {
 elements.planViewport.addEventListener("pointerup", stopDragging);
 elements.planViewport.addEventListener("pointercancel", stopDragging);
 
-elements.dwgInput.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  const extension = file.name.split(".").pop().toLowerCase();
+async function loadDxfSource(source, name, size) {
   elements.importStatus.classList.remove("error");
-
-  if (extension !== "dxf") {
-    elements.importStatus.textContent = "Utilisez un fichier DXF";
-    elements.importStatus.classList.add("error");
-    return;
-  }
-
   elements.importStatus.textContent = "Analyse du DXF...";
   await new Promise((resolve) => window.setTimeout(resolve, 20));
 
   try {
     const parser = new window.DxfParser();
-    const source = await file.text();
     const dxf = parser.parseSync(source);
     const model = buildDxfModel(dxf, layoutViewBounds(source));
     state.dxfModel = model;
     state.importedTypes = Object.fromEntries(model.rooms.map((room) => [room.number, room.typeText]));
-    rooms = model.rooms.map((room) => ({ number: room.number }));
+    rooms = model.rooms.map((room) => roomDefinitions.get(room.number) || {
+      id: `r2-${room.number}`,
+      floorId: CURRENT_FLOOR,
+      number: room.number,
+      blockId: null,
+      roomType: "standard",
+    });
     loggiaRooms.clear();
     model.loggias.filter((loggia) => loggia.number !== null).forEach((loggia) => loggiaRooms.add(loggia.number));
     state.selectedRoom = rooms[0].number;
@@ -619,23 +817,86 @@ elements.dwgInput.addEventListener("change", async (event) => {
 
     const bathroomCount = model.rooms.reduce((count, room) => count + room.bathrooms.length, 0);
     const loggiaCount = model.rooms.reduce((count, room) => count + room.loggias.length, 0);
-    const metadata = { name: file.name, size: file.size, extension, rooms: model.rooms.length, bathroomCount, loggiaCount };
-    localStorage.setItem("suivi-hotel-import-meta", JSON.stringify(metadata));
-    elements.importStatus.textContent = `${model.rooms.length} chambres chargées`;
-    elements.importStatus.title = `${file.name} - ${bathroomCount} SDB - ${loggiaCount} loggias associées`;
+    const metadata = { name, size, extension: "dxf", rooms: model.rooms.length, bathroomCount, loggiaCount };
+    if (activeProjectDefinition) {
+      localStorage.setItem(`suivi-hotel-import-meta:${activeProjectDefinition.id}`, JSON.stringify(metadata));
+    }
+    elements.importStatus.textContent = "";
+    elements.importStatus.title = `${name} - ${bathroomCount} SDB - ${loggiaCount} loggias associées`;
   } catch (error) {
     console.error(error);
     elements.importStatus.textContent = error.message || "DXF illisible";
     elements.importStatus.classList.add("error");
   }
+}
+
+function clearPlan(message) {
+  state.dxfModel = null;
+  state.importedTypes = {};
+  rooms = R2_ROOMS;
+  loggiaRooms.clear();
+  state.selectedRoom = rooms[0].number;
+  state.selectedBlock = "all";
+  state.selectedType = "all";
+  state.selectedZone = "bedroom";
+  state.selectedTask = "partitions";
+  elements.dxfPlan.innerHTML = "";
+  elements.planEmpty.hidden = false;
+  elements.planEmpty.textContent = message;
+  render();
+}
+
+async function loadConfiguredPlan(projectDefinition) {
+  if (!projectDefinition.dxfPath) {
+    clearPlan("Le plan DXF du R+2 n'est pas encore configuré pour ce projet.");
+    elements.importStatus.textContent = "Plan R+2 à configurer";
+    elements.importStatus.classList.add("error");
+    return;
+  }
+  try {
+    const response = await fetch(projectDefinition.dxfPath);
+    if (!response.ok) throw new Error(`Plan introuvable (${response.status})`);
+    const source = await response.text();
+    const name = projectDefinition.dxfPath.split("/").at(-1) || "plan.dxf";
+    await loadDxfSource(source, name, source.length);
+  } catch (error) {
+    console.error("Plan DXF du projet illisible", error);
+    clearPlan("Le plan DXF configuré pour ce projet ne peut pas être chargé.");
+    elements.importStatus.textContent = error instanceof Error ? error.message : "Plan DXF illisible";
+    elements.importStatus.classList.add("error");
+  }
+}
+
+async function openProject(projectId) {
+  const definition = PROJECT_CATALOG.find((item) => item.id === projectId);
+  if (!definition) return;
+  activeProjectDefinition = definition;
+  projectRepository = createProjectRepository(localStorage, definition.id);
+  project = await projectRepository.load();
+  state.records = project.floors[CURRENT_FLOOR].records;
+  elements.projectSubtitle.textContent = `${definition.name} - ${definition.floorLabel}`;
+  elements.importStatus.classList.remove("error");
+  elements.projectDialog.close();
+  await loadConfiguredPlan(definition);
+}
+
+elements.projectList.innerHTML = PROJECT_CATALOG.map((definition) => `
+  <button class="project-choice" type="button" data-project-id="${definition.id}">
+    <strong>${definition.name}</strong>
+    <span>${definition.description}</span>
+  </button>`).join("");
+
+elements.projectList.addEventListener("click", (event) => {
+  const choice = event.target.closest("[data-project-id]");
+  if (choice) void openProject(choice.dataset.projectId);
 });
 
-document.querySelector("#resetButton").addEventListener("click", () => {
-  if (!window.confirm("Effacer tous les avancements enregistrés sur cet appareil ?")) return;
-  state.records = {};
-  localStorage.removeItem(STORAGE_KEY);
-  render();
+elements.projectDialog.addEventListener("cancel", (event) => {
+  if (!activeProjectDefinition) event.preventDefault();
 });
 
 render();
 window.requestAnimationFrame(fitPlan);
+elements.projectDialog.showModal();
+  resetCorrectionState();
+  resetCorrectionState();

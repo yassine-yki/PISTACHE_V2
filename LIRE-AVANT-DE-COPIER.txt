@@ -1,0 +1,18 @@
+SUIVI HOTEL R+2 - VERSION PORTABLE WINDOWS
+
+1. Decompressez toute l'archive dans un dossier sur l'autre PC.
+2. Double-cliquez sur "Demarrer sur un autre PC.cmd".
+3. L'application s'ouvre dans Brave (si present) ou dans votre navigateur par defaut.
+4. Gardez la fenetre noire ouverte pendant l'utilisation. Ctrl+C l'arrete.
+
+Le plan R+2 testr2.dxf est inclus et se charge automatiquement. L'application
+fonctionne sans Internet, Python, Node.js ou installation de dependances.
+
+IMPORTANT : les pourcentages saisis sur le premier PC ne sont pas inclus dans
+cette archive. Sur le premier PC, cliquez sur "Exporter les donnees", copiez
+le fichier JSON obtenu sur l'autre PC, puis cliquez sur "Restaurer". Une
+restauration remplace les avancements deja saisis dans ce navigateur.
+
+Chaque PC conserve ensuite ses propres avancements. Les modifications ne se
+synchronisent pas automatiquement entre les PC. Pour partager les nouvelles
+valeurs, exportez et restaurez a nouveau une sauvegarde JSON.

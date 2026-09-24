@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": ".test-dist",
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/model.ts",
+    "src/storage.ts",
+    "src/dxf-identification.ts",
+    "src/repositories/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}
