@@ -1,8 +1,4 @@
 @echo off
 cd /d "%~dp0"
-python local_server.py
-if errorlevel 1 (
-  echo.
-  echo Impossible de demarrer. Verifiez que Python est installe et que le port 4173 est libre.
-  pause
-)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-app.ps1"
+if errorlevel 1 pause

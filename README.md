@@ -1,31 +1,65 @@
-# Suivi des chambres R+2
+# PISTACHE V2 — Suivi des chambres
 
-L'application locale s'ouvre avec `Lancer le suivi.cmd`. Les fichiers de `dist/` sont directement servis par `local_server.py`; aucune connexion Internet n'est nécessaire pour l'utiliser. Au démarrage, l'utilisateur choisit un projet existant. L'application charge ensuite uniquement les données et le plan configurés pour ce projet.
+Application Windows pour suivre l’avancement des travaux des **40 chambres du R+2** du projet **Mixed Use**. Le plan est inclus et se charge automatiquement.
 
-## Données
+## Ouvrir l’application
 
-- Les avancements restent enregistrés dans le navigateur de ce PC et sont isolés par projet.
-- Au premier chargement de cette version, les avancements de l'ancien stockage `suivi-hotel-r2-v1` sont copiés dans le projet versionné `suivi-hotel-project-v1`. L'ancien stockage n'est pas supprimé.
-- Le projet est organisé par étage. Seul R+2 est utilisable dans l'interface pour le moment.
-- Le référentiel R+2 provient de `Mixed Use Avancement VERSION 1.xlsx` : 40 chambres réparties entre les blocs A, B et C, avec 35 tâches SDB, 33 tâches chambre et 2 tâches loggia. Les colonnes Excel sources sont conservées dans le catalogue des tâches pour préparer un futur import contrôlé.
-- Chaque projet possède sa propre clé de stockage locale. Les avancements d'un projet ne peuvent donc pas être lus ou écrasés par un autre projet.
-- Le projet `Mixed Use` est enregistré dans `src/project-catalog.ts`. Son plan `a2.dxf` est inclus dans `public/projects/mixed-use/r2/` et dans chaque build de production ; aucun ajout manuel n'est nécessaire.
-- Les tâches sont présentées par grande partie et sous-tâche. Une recherche filtre les sous-tâches dans la fiche de la chambre.
+1. Ouvrez le dossier du projet.
+2. Double-cliquez sur **Lancer le suivi.cmd**.
+3. Dans le navigateur, choisissez **Mixed Use**.
+4. Sélectionnez une chambre pour consulter et mettre à jour son avancement.
 
-## Développement
+L’application fonctionne sans Internet. Pour cette utilisation, vous n’avez pas besoin d’installer Python, Node.js ou pnpm.
 
-`src/model.ts` définit les chambres, blocs, zones visuelles, tâches, modifications et photos. `src/storage.ts` gère les migrations et sauvegardes. `src/dxf-identification.ts` extrait les numéros du plan. `src/repositories/` isole le stockage de l'interface afin de pouvoir remplacer le stockage local par Supabase. L'interface et le rendu DXF sont encore dans `src/app.js`; leur migration vers TypeScript peut se faire progressivement.
+Elle s’ouvre dans Brave s’il est installé à son emplacement habituel, sinon dans votre navigateur par défaut. Son adresse est [http://127.0.0.1:4173](http://127.0.0.1:4173).
 
-La cible technique et les étapes de synchronisation sont décrites dans `docs/architecture-technique.md`. Le schéma initial de la future base partagée se trouve dans `supabase/migrations/0001_initial_schema.sql`. Cette migration ne contient volontairement aucune chambre, aucun bloc et aucune tâche métier avant validation des listes définitives.
+## Fermer et rouvrir
 
-Avec Node.js et pnpm :
+- **Fermer la page** : fermez l’onglet du navigateur. Le service qui permet d’ouvrir l’application continue de fonctionner en arrière-plan.
+- **Rouvrir l’application** : double-cliquez à nouveau sur **Lancer le suivi.cmd**. Le service déjà ouvert est réutilisé.
+- **Arrêter complètement l’application** : double-cliquez sur **Arreter le suivi.cmd**, puis fermez son onglet.
+
+L’ancien raccourci **Ouvrir dans Brave.cmd** lance désormais la même procédure que **Lancer le suivi.cmd**.
+
+## Où sont enregistrés les avancements ?
+
+Les modifications sont enregistrées automatiquement **dans le navigateur de ce PC**, séparément pour chaque projet.
+
+Utilisez toujours le même navigateur et le même profil pour retrouver vos données. Changer de navigateur, utiliser une fenêtre privée ou effacer les données du site peut vous empêcher de retrouver vos avancements.
+
+**Copier le dossier de l’application ou l’envoyer sur GitHub ne sauvegarde pas les avancements saisis.** Ils ne sont pas synchronisés entre plusieurs ordinateurs. La version actuelle ne propose pas de boutons d’export ou de restauration dans l’interface.
+
+## Si l’application ne s’ouvre pas
+
+| Message ou problème | Que faire ? |
+| --- | --- |
+| Le port 4173 est déjà utilisé | Fermez l’autre serveur ou une ancienne fenêtre de lancement, puis réessayez. |
+| « Application compilée absente » | Le dossier est incomplet ou la version utilisable n’a pas été préparée. Récupérez une copie complète, ou suivez la commande de préparation ci-dessous. |
+| Une erreur persiste | Consultez le message affiché. Si le service a tenté de démarrer, les détails peuvent se trouver dans `.runtime/server-error.log`. |
+| Vos avancements semblent avoir disparu | Vérifiez que vous utilisez le même navigateur, le même profil et l’adresse habituelle se terminant par `:4173`. |
+
+## Pour modifier l’application
+
+Cette partie concerne uniquement le développement.
+
+**La première fois :** installez Node.js et pnpm, ouvrez un terminal dans le dossier du projet, puis exécutez :
 
 ```powershell
 pnpm install
-pnpm dev
-pnpm run build
-pnpm run check
-pnpm test
 ```
 
-`pnpm dev` lance Vite sur `http://127.0.0.1:4173`. `pnpm run build` vérifie TypeScript puis produit l'application dans `dist/`. Les sources utilisent des imports ES standards et aucune API spécifique à Vite. Le test d'intégration utilise `Documents/a2.dxf` sur ce PC ; ailleurs, définir `R2_DXF` vers le fichier ou le test sera ignoré.
+**Pour travailler sur le code :** double-cliquez sur **Demarrer le developpement.cmd**. Une fenêtre de commande reste ouverte et le navigateur affiche [http://127.0.0.1:5173](http://127.0.0.1:5173). Les modifications du code sont rechargées automatiquement. Appuyez sur **Ctrl+C** dans cette fenêtre pour arrêter le développement.
+
+Vous pouvez aussi démarrer depuis un terminal avec `pnpm dev`, puis ouvrir cette adresse.
+
+Les versions quotidienne et de développement peuvent fonctionner en même temps. **Leurs avancements sont enregistrés séparément** : les saisies de la version quotidienne n’apparaissent pas automatiquement dans la version de développement.
+
+**Pour rendre les changements disponibles dans la version quotidienne :**
+
+```powershell
+pnpm run build
+```
+
+Cette commande prépare les fichiers utilisés par **Lancer le suivi.cmd**. Rechargez ensuite la page de la version quotidienne.
+
+Pour vérifier le code, utilisez `pnpm run check` et `pnpm test`. Les détails d’architecture sont dans [la documentation technique](docs/architecture-technique.md).
