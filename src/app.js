@@ -12,7 +12,8 @@ let activeProjectDefinition = null;
 let projectRepository = null;
 let project = emptyProject();
 let saveQueue = Promise.resolve();
-const localMode = !cloudConfigured;
+const guestModeKey = "pistache-guest-mode";
+const localMode = !cloudConfigured || sessionStorage.getItem(guestModeKey) === "true";
 let cloud = null;
 let synchronizing = false;
 let currentUser = null;
@@ -963,12 +964,12 @@ function renderAccessShell() {
   document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
   document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
-  document.querySelector("#signInButton").hidden = true;
+  document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
   document.querySelector("#syncButton").hidden = !cloud;
   document.querySelector("#sessionRole").textContent = localMode ? "Version locale" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
   document.querySelector("#workspaceTitle").textContent = localMode ? "Suivi local" : admin ? "Le chantier, en clair." : "Mes tâches";
   document.querySelector("#workspaceDescription").textContent = localMode
-    ? "Supabase n'est pas encore configuré. Les avancements restent dans ce navigateur."
+    ? "Mode sans compte : les avancements restent dans ce navigateur et ne sont pas partagés avec votre équipe."
     : "Une tâche, un intervenant. Les saisies hors connexion restent sur cet appareil jusqu'à synchronisation.";
   document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
   const workerRooms=document.querySelector("#workerRooms");
@@ -1108,6 +1109,15 @@ document.querySelector("#logoutButton").onclick=async()=>{
   if(pending.length && !confirm("Des modifications restent sur cet appareil. Elles seront conservées pour ce compte. Se déconnecter ?"))return;
   await logout();cloud=null;currentUser=null;state.records={};accessReady=false;
   document.querySelector("#profileDialog").close();showLogin();
+};
+document.querySelector("#continueAsGuest").onclick=()=>{
+  sessionStorage.setItem(guestModeKey,"true");
+  location.reload();
+};
+document.querySelector("#signInButton").onclick=async()=>{
+  await saveQueue;
+  sessionStorage.removeItem(guestModeKey);
+  location.reload();
 };
 document.querySelector("#loginDialog").addEventListener("cancel",event=>event.preventDefault());
 document.querySelector("#toggleRegister").onclick=()=>{

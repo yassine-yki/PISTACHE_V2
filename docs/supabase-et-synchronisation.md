@@ -69,3 +69,9 @@ Les scénarios navigateur utilisent des réponses Supabase simulées. Une valida
 Le rafraîchissement des données est périodique ; Realtime n'est pas encore branché. L'envoi de photos et la configuration de leur stockage privé restent à intégrer. L'interface est actuellement prévue pour le catalogue R+2 existant.
 
 Le schéma complet est décrit dans [le schéma de base de données](schema-base-de-donnees-fr.md).
+
+## Continuer sans compte
+
+Sur l’écran de connexion, **Continuer sans se connecter** ouvre le suivi local. Les saisies sont conservées dans ce navigateur, séparément des projets partagés. Elles ne sont pas envoyées à Supabase lors d’une connexion ultérieure.
+
+Le choix reste actif lors des actualisations dans cet onglet. Le bouton **Se connecter** permet de revenir aux comptes et projets partagés.
