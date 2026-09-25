@@ -4,11 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Suivi visuel des travaux de second oeuvre de l'etage R+2." />
-    <title>Suivi Hôtel R+2</title>
+    <title>Pistache V2 — Suivi du chantier</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
+    <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
+      <div class="project-dialog-header"><span class="eyebrow">Pistache V2 · Mixed Use</span><h2 id="loginTitle">Retrouvez votre chantier.</h2><p>Connectez-vous pour reprendre vos tâches et vos avancements.</p></div>
+      <form id="loginForm" class="access-form">
+        <label class="field" id="loginNameField" hidden><span>Nom affiché</span><input id="loginName" autocomplete="name"></label><label class="field"><span>Adresse e-mail</span><input id="loginEmail" type="email" autocomplete="username" required></label>
+        <label class="field"><span>Mot de passe</span><input id="loginPassword" type="password" autocomplete="current-password" minlength="8" maxlength="200" required></label>
+        <p class="form-message error" id="loginError" role="alert" hidden></p>
+        <button class="button primary" id="loginSubmit" type="submit">Se connecter</button>
+        <button class="text-button" id="toggleRegister" type="button">Créer un compte intervenant</button>
+
+      </form>
+    </dialog>
+    <dialog class="project-dialog" id="profileDialog" aria-labelledby="profileTitle">
+      <div class="project-dialog-header dialog-heading"><div><span class="eyebrow">Compte personnel</span><h2 id="profileTitle">Mon profil</h2></div><button type="button" class="button secondary" id="closeProfile">Fermer</button></div>
+      <div class="access-form"><dl id="profileMetadata" class="profile-metadata"></dl>
+
+        <button type="button" class="button secondary" id="logoutButton">Se déconnecter</button>
+      </div>
+    </dialog>
     <dialog class="project-dialog" id="projectDialog" aria-labelledby="projectDialogTitle">
       <div class="project-dialog-header">
         <span class="eyebrow">Ouverture</span>
@@ -20,16 +38,19 @@
 
     <header class="topbar">
       <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true">R+2</div>
+        <div class="brand-mark" aria-hidden="true">P</div>
         <div>
-          <h1>Suivi des chambres</h1>
+          <h1>Pistache <span class="version-label">V2</span></h1>
           <p id="projectSubtitle">Aucun projet ouvert</p>
         </div>
       </div>
       <span class="sr-only" id="importStatus" aria-live="polite"></span>
+      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
+    <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="history">Activité</button></nav>
+    <div class="workspace-intro" id="workspaceIntro" hidden><div><span class="eyebrow" id="workspaceEyebrow">Mixed Use / R+2</span><h2 id="workspaceTitle">Mes tâches</h2><p id="workspaceDescription"></p></div><button class="button secondary" type="button" id="refreshData">Actualiser</button></div>
 
-    <main class="app-shell">
+    <main class="app-shell" id="mainWorkspace" hidden>
       <section class="workspace" aria-label="Plan interactif">
         <div class="controlbar">
           <label class="control-group floor-control">
@@ -88,6 +109,7 @@
         </div>
 
         <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
+        <div id="workerRooms" class="worker-rooms" aria-label="Chambres accessibles" hidden></div>
 
         <div class="plan-viewport" id="planViewport">
           <div class="plan-content" id="planContent">
@@ -128,10 +150,7 @@
             <output class="percent-output" id="percentOutput">0 %</output>
           </div>
 
-          <div class="task-lock" id="taskLock" hidden>
-            <strong>Tâche terminée</strong>
-            <span>Les modifications sont verrouillées.</span>
-          </div>
+          <div class="task-lock" id="taskLock" hidden><strong>Lecture seule</strong><p>Seul l’intervenant affecté peut modifier cette tâche. Une tâche terminée nécessite une correction administrative.</p></div>
 
           <button class="correction-trigger" id="correctionTrigger" type="button" hidden>Signaler une correction</button>
 
@@ -201,7 +220,24 @@
         </section>
       </aside>
     </main>
+<section id="adminTeam" class="admin-page" hidden>
+  <div class="page-heading"><h2>Équipe et affectations</h2><p>Chaque tâche d'une chambre a un seul intervenant. Le bloc sert à organiser les chambres, il ne donne aucun droit d'écriture.</p></div>
+  <form id="assignmentForm" class="access-form"><h3>Affecter une tâche</h3>
+    <label class="field">Chambre<select id="assignmentRoom"></select></label>
+    <label class="field">Tâche<select id="assignmentTask"></select></label>
+    <label class="field">Intervenant<select id="assignmentPerson"></select></label>
+    <button class="button primary" type="submit">Enregistrer l'affectation</button>
+  </form>
+  <form id="memberForm" class="access-form"><h3>Ajouter ou modifier un membre</h3><p>La personne crée d'abord son compte et vous transmet l'identifiant affiché dans son profil.</p>
+    <label class="field">Identifiant du compte<input id="memberId" required placeholder="Identifiant UUID"></label>
+    <label class="field">Rôle<select id="memberRole"><option value="worker">Intervenant</option><option value="viewer">Lecture seule</option><option value="admin">Administrateur</option></select></label>
+    <label class="field">Accès<select id="memberStatus"><option value="active">Actif</option><option value="inactive">Désactivé</option></select></label>
+    <button class="button primary" type="submit">Enregistrer le membre</button>
+  </form><div id="teamList" class="team-list"></div><p id="teamMessage" role="status"></p>
+</section>
+    <section id="adminActivity" class="admin-page" aria-label="Historique du projet" hidden><div class="page-heading"><span class="eyebrow">Administration du projet</span><h2>Activité du chantier</h2><p>Avancements, corrections et changements d’affectation.</p></div><div id="activityList" class="activity-list"></div></section>
 
+<dialog id="syncDialog" class="project-dialog" aria-labelledby="syncTitle"><div class="access-form"><h2 id="syncTitle">Synchronisation</h2><p>Les saisies en attente restent sur cet appareil. Les modifications refusées demandent votre attention.</p><div id="syncProblems"></div><button type="button" id="retrySync" class="button primary">Synchroniser maintenant</button><button type="button" id="closeSync" class="button secondary">Fermer</button></div></dialog>
     <script src="/vendor/dxf-parser.js"></script>
     <script type="module" src="/src/app.js"></script>
   </body>

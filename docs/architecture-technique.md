@@ -38,3 +38,9 @@ Chaque étage possède une référence vers son plan. Chaque zone géométrique 
 3. Ajouter l'authentification et les règles d'accès par projet.
 4. Implémenter `SupabaseProjectRepository`, la synchronisation et le stockage des photos.
 5. Installer l'application comme PWA et tester sur les téléphones du chantier.
+
+## Intégration Supabase et affectations individuelles
+
+La livraison locale reprend les écrans de comptes et d’administration sans le service SQLite de la proposition intermédiaire. Les échanges Supabase sont regroupés dans src/cloud/workspace.ts ; l’interface ne conserve aucun droit d’écriture par bloc. src/cloud/sync.ts gère les opérations identifiées et leurs dépendances, et src/cloud/offline-store.ts conserve les caches et propositions dans IndexedDB, par compte et par projet Supabase.
+
+Le fonctionnement partagé s’active avec les variables VITE_SUPABASE_URL et VITE_SUPABASE_PUBLISHABLE_KEY. Sans ces variables, le repository local existant reste utilisé. Voir [le guide de configuration](supabase-et-synchronisation.md) pour les limites, les migrations et les étapes de validation distante.

@@ -1,13 +1,18 @@
+import { writeOfflineWorker } from "./scripts/offline-worker.mjs";
 import { defineConfig } from "vite";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
+
+let outputDirectory = resolve("dist");
 
 export default defineConfig({
   plugins: [
     {
       name: "exclude-obsolete-dxf",
+      configResolved(config) { outputDirectory = resolve(config.root, config.build.outDir); },
       async closeBundle() {
-        await rm(resolve("dist/assets/testr2.dxf"), { force: true });
+        await rm(resolve(outputDirectory, "assets/testr2.dxf"), { force: true });
+        await writeOfflineWorker(outputDirectory);
       },
     },
   ],

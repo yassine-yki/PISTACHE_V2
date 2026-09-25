@@ -3,19 +3,43 @@ import { cleanDxfText, roomNumberFromText } from "./dxf-identification.js";
 import { createProjectRepository } from "./repositories/index.js";
 import { R2_ROOMS } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
+import { cloudConfigured, login, logout, restoreWorkspace } from "./cloud/workspace.js";
+import { editable } from "./cloud/types.js";
+
+
 
 let activeProjectDefinition = null;
 let projectRepository = null;
 let project = emptyProject();
 let saveQueue = Promise.resolve();
+const localMode = !cloudConfigured;
+let cloud = null;
+let synchronizing = false;
+let currentUser = null;
+let accessReady = false;
+let saving = false;
+let adminPage = "dashboard";
+let registrationMode = false;
 
-function persistProject() {
-  if (!projectRepository) return Promise.resolve();
-  saveQueue = saveQueue
-    .then(() => projectRepository.save(project))
-    .catch((error) => {
-      console.error("Échec de sauvegarde", error);
-    });
+function persistProject(key, correction = null, previousRecord = null) {
+  if (!projectRepository && !cloud) return Promise.resolve();
+  const record = { ...state.records[key] };
+  saving = true;
+  document.querySelector("#saveStatus").textContent = "Enregistrement sur cet appareil…";
+  saveQueue = saveQueue.then(async () => {
+    if (localMode) {
+      await projectRepository.save(project);
+      document.querySelector("#saveStatus").textContent="Enregistré dans ce navigateur";
+    } else {
+      project=await cloud.enqueue(key,record,correction,previousRecord);
+      state.records=project.floors[CURRENT_FLOOR].records;
+      await renderSync();
+    }
+  }).catch(error => {
+    if(previousRecord) state.records[key]=previousRecord;
+    document.querySelector("#saveStatus").textContent="Non enregistré : "+error.message;
+    state.progressRuleMessage=error.message;
+  }).finally(()=>{saving=false;render();if(!localMode)queueMicrotask(()=>void syncCloud());});
   return saveQueue;
 }
 
@@ -355,6 +379,7 @@ function resetCorrectionState() {
 }
 
 function updateRecord(changes) {
+  if (!canEditSelectedRoom() || saving) return;
   const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
   const current = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
   if (current.progress >= 100 && !state.correctionAuthorization) {
@@ -363,11 +388,12 @@ function updateRecord(changes) {
     return;
   }
   state.records[key] = { ...current, ...changes };
-  void persistProject();
+  void persistProject(key, state.correctionAuthorization, current);
   render();
 }
 
 function updateProgress(value) {
+  if (!canEditSelectedRoom() || saving) return;
   const progress = Math.max(0, Math.min(100, Number(value || 0)));
   const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
   const current = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
@@ -384,15 +410,30 @@ function updateProgress(value) {
     correctedAt: new Date().toISOString(),
   } : {};
   state.records[key] = { ...current, ...correction, progress };
+  const authorization = state.correctionAuthorization;
   if (progress < current.progress || progress >= 100) resetCorrectionState();
   else state.progressRuleMessage = "";
-  void persistProject();
+  void persistProject(key, authorization, current);
   elements.percentOutput.textContent = `${progress} %`;
   elements.percentInput.value = progress;
   elements.progressRange.value = progress;
   renderSummary();
   renderTaskList();
   renderDxfZones();
+  renderEditor();
+}
+
+function roomAccessible(number) {
+  const room=rooms.find(r=>r.number===number);
+  if(!accessReady || !room)return false;
+  if(localMode || currentUser?.role==="admin" || currentUser?.role==="viewer")return true;
+  return cloud?.snapshot?.tasks.some(t=>t.key.startsWith(number+":") && editable(cloud.snapshot,currentUser.id,t.key)) || false;
+}
+
+function canEditSelectedRoom() {
+  if(localMode)return true;
+  return Boolean(cloud?.snapshot && editable(cloud.snapshot,currentUser?.id,
+    state.selectedRoom+":"+state.selectedZone+":"+state.selectedTask,Boolean(state.correctionAuthorization)));
 }
 
 function roomTypeId(number) {
@@ -419,7 +460,7 @@ function roomMatchesBlock(number) {
 }
 
 function roomMatchesFilters(number) {
-  return roomMatchesType(number) && roomMatchesBlock(number);
+  return roomAccessible(number) && roomMatchesType(number) && roomMatchesBlock(number);
 }
 
 function currentTasks() { return tasksByZone[state.selectedZone]; }
@@ -445,7 +486,7 @@ function renderBlockTabs() {
   document.querySelectorAll("[data-block]").forEach((button) => {
     button.classList.toggle("active", button.dataset.block === state.selectedBlock);
     button.classList.toggle("filtered-out", state.selectedBlock !== "all" && button.dataset.block !== "all" && button.dataset.block !== state.selectedBlock);
-    button.disabled = button.dataset.block !== "all" && !rooms.some((room) => room.blockId === button.dataset.block && roomMatchesType(room.number));
+    button.disabled = (button.dataset.block !== "all" && !rooms.some((room) => room.blockId === button.dataset.block && roomMatchesType(room.number)));
   });
 }
 
@@ -505,13 +546,18 @@ function renderRoomHeading() {
 }
 
 function renderTaskList() {
+  if (!roomAccessible(state.selectedRoom)) {
+    elements.taskList.innerHTML = '<div class="empty-state">Votre administrateur doit vous affecter une tâche pour commencer.</div>';
+    elements.taskEditor.hidden = true;
+    return;
+  }
   const tasks = currentTasks();
   if (!tasks.length) {
     elements.taskList.innerHTML = '<div class="empty-state">Les tâches de la loggia seront ajoutées lors de la prochaine définition.</div>';
     elements.taskEditor.hidden = true;
     return;
   }
-  elements.taskEditor.hidden = false;
+  elements.taskEditor.hidden = !currentUser;
   const query = state.taskQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const visibleTasks = tasks.filter((task) => task.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(query));
   const groups = new Map();
@@ -550,10 +596,10 @@ function renderEditor() {
   elements.startDateInput.value = record.startDate;
   elements.endDateInput.value = record.endDate;
   const correctionAuthorized = Boolean(state.correctionAuthorization);
-  const locked = record.progress >= 100 && !correctionAuthorized;
+  const locked = !canEditSelectedRoom() || saving || (record.progress >= 100 && !correctionAuthorized);
   elements.taskLock.hidden = !locked;
-  elements.correctionTrigger.hidden = record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
-  elements.correctionPanel.hidden = !state.correctionPanelOpen;
+  elements.correctionTrigger.hidden = currentUser?.role !== "admin" || record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
+  elements.correctionPanel.hidden = currentUser?.role !== "admin" || !state.correctionPanelOpen;
   elements.correctionAuthorized.hidden = !correctionAuthorized;
   elements.correctionAuthorized.textContent = correctionAuthorized
     ? `Correction autorisée : ${state.correctionAuthorization.reason === "input-error" ? "Erreur de saisie" : "Élément oublié ou ajouté"}`
@@ -601,6 +647,7 @@ function render() {
   renderDxfZones();
   renderRoomSelection();
   renderZoom();
+  renderAccessShell();
 }
 
 function centerOnRoom(number) {
@@ -619,12 +666,13 @@ function centerOnRoom(number) {
 }
 
 function selectRoom(number, center = false) {
-  if (!rooms.some((room) => room.number === number)) return;
+  if (!roomAccessible(number)) return;
   resetCorrectionState();
   state.selectedRoom = number;
   if (!roomMatchesType(number)) state.selectedType = "all";
   render();
   if (center) centerOnRoom(number);
+  if (currentUser) localStorage.setItem(`pistache-room:${currentUser.id}`, String(number));
 }
 
 function setZone(zone) {
@@ -640,7 +688,7 @@ function setType(type) {
   resetCorrectionState();
   state.selectedType = type;
   const changedRoom = !roomMatchesFilters(state.selectedRoom);
-  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number)).number;
+  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
   render();
 }
 
@@ -649,7 +697,7 @@ function setBlock(block) {
   resetCorrectionState();
   state.selectedBlock = block;
   const changedRoom = !roomMatchesFilters(state.selectedRoom);
-  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number)).number;
+  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
   render();
 }
 
@@ -709,12 +757,14 @@ elements.taskSearch.addEventListener("input", (event) => {
   renderTaskList();
 });
 elements.correctionTrigger.addEventListener("click", () => {
+  if (currentUser?.role !== "admin") return;
   state.correctionPanelOpen = true;
   state.progressRuleMessage = "";
   elements.correctionError.hidden = true;
   renderEditor();
 });
 elements.authorizeCorrection.addEventListener("click", () => {
+  if (currentUser?.role !== "admin") return;
   const reason = elements.correctionReason.value;
   const note = elements.correctionNote.value.trim();
   if (!reason || !note) {
@@ -868,16 +918,24 @@ async function loadConfiguredPlan(projectDefinition) {
 }
 
 async function openProject(projectId) {
-  const definition = PROJECT_CATALOG.find((item) => item.id === projectId);
-  if (!definition) return;
-  activeProjectDefinition = definition;
-  projectRepository = createProjectRepository(localStorage, definition.id);
-  project = await projectRepository.load();
-  state.records = project.floors[CURRENT_FLOOR].records;
-  elements.projectSubtitle.textContent = `${definition.name} - ${definition.floorLabel}`;
-  elements.importStatus.classList.remove("error");
+  if(localMode) {
+    const definition=PROJECT_CATALOG.find(p=>p.id===projectId);if(!definition)return;
+    activeProjectDefinition=definition;
+    projectRepository=createProjectRepository(localStorage,definition.id);
+    project=await projectRepository.load();
+  } else {
+    project=await cloud.open(projectId);
+    currentUser={...cloud.user,role:cloud.snapshot.role};
+    activeProjectDefinition={...PROJECT_CATALOG[0],id:projectId,name:cloud.snapshot.name};
+  }
+  state.records=project.floors[CURRENT_FLOOR].records;
+  elements.projectSubtitle.textContent=activeProjectDefinition.name+" — R+2";
   elements.projectDialog.close();
-  await loadConfiguredPlan(definition);
+  accessReady=true;adminPage="dashboard";state.selectedBlock="all";state.selectedType="all";
+  if(localMode || currentUser?.role==="admin") await loadConfiguredPlan(activeProjectDefinition);
+  else {rooms=R2_ROOMS;state.dxfModel=null;elements.dxfPlan.innerHTML="";}
+  state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
+  render();if(!localMode){await renderSync();void syncCloud();}
 }
 
 elements.projectList.innerHTML = PROJECT_CATALOG.map((definition) => `
@@ -888,15 +946,209 @@ elements.projectList.innerHTML = PROJECT_CATALOG.map((definition) => `
 
 elements.projectList.addEventListener("click", (event) => {
   const choice = event.target.closest("[data-project-id]");
-  if (choice) void openProject(choice.dataset.projectId);
+  if (choice) void openProject(choice.dataset.projectId).catch(error => { const message=document.querySelector("#projectMessage"); if(message)message.textContent=error.message; });
 });
 
 elements.projectDialog.addEventListener("cancel", (event) => {
   if (!activeProjectDefinition) event.preventDefault();
 });
 
-render();
-window.requestAnimationFrame(fitPlan);
-elements.projectDialog.showModal();
-  resetCorrectionState();
-  resetCorrectionState();
+
+function renderAccessShell() {
+  const admin = currentUser?.role === "admin";
+  document.body.dataset.role = localMode ? "admin" : !accessReady ? "signed-out" : currentUser?.role || "signed-out";
+  document.querySelector("#mainWorkspace").hidden = !accessReady || (!localMode && admin && adminPage !== "dashboard");
+  document.querySelector("#workspaceIntro").hidden = !accessReady;
+  document.querySelector("#adminNavigation").hidden = !accessReady || !admin || localMode;
+  document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
+  document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
+  document.querySelector("#profileButton").hidden = !accessReady || localMode;
+  document.querySelector("#signInButton").hidden = true;
+  document.querySelector("#syncButton").hidden = !cloud;
+  document.querySelector("#sessionRole").textContent = localMode ? "Version locale" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
+  document.querySelector("#workspaceTitle").textContent = localMode ? "Suivi local" : admin ? "Le chantier, en clair." : "Mes tâches";
+  document.querySelector("#workspaceDescription").textContent = localMode
+    ? "Supabase n'est pas encore configuré. Les avancements restent dans ce navigateur."
+    : "Une tâche, un intervenant. Les saisies hors connexion restent sur cet appareil jusqu'à synchronisation.";
+  document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
+  const workerRooms=document.querySelector("#workerRooms");
+  workerRooms.hidden=localMode || admin || !accessReady;
+  if(!workerRooms.hidden) workerRooms.innerHTML=rooms.filter(r=>roomMatchesFilters(r.number)).map(r=>
+    '<button type="button" data-room="'+r.number+'" class="worker-room '+(r.number===state.selectedRoom?'active':'')+'"><strong>Chambre '+r.number+'</strong><span>Bloc '+r.blockId+'</span></button>'
+  ).join("") || '<p class="empty-state">Aucune tâche affectée pour le moment.</p>';
+  if(!roomAccessible(state.selectedRoom)) { elements.roomTitle.textContent="En attente d'affectation"; elements.roomType.textContent=""; }
+}
+function showLogin(message="") {
+  accessReady=false; renderAccessShell();
+  document.querySelector("#loginError").textContent=message;
+  document.querySelector("#loginError").hidden=!message;
+  document.querySelector("#loginPassword").value="";
+  document.querySelector("#loginDialog").showModal();
+}
+async function chooseProject() {
+  const projects=await cloud.projects();
+  elements.projectList.innerHTML=projects.map(p=>'<button type="button" class="project-choice" data-project-id="'+escapeSvgText(p.id)+'"><strong>'+escapeSvgText(p.name)+'</strong><span>Ouvrir le projet partagé</span></button>').join("")
+    + '<p>Pour rejoindre un projet, transmettez votre identifiant à son administrateur : <code>'+escapeSvgText(cloud.user.id)+'</code></p>'
+    + '<button type="button" class="button secondary" id="createSharedProject">Créer un projet Mixed Use</button>'
+    + '<p>Un nouveau projet démarre à 0 %. Les anciennes saisies locales ne sont pas importées automatiquement.</p><p id="projectMessage" role="status"></p>'
+    + '<button type="button" class="text-button" id="projectLogout">Changer de compte</button>';
+  elements.projectDialog.showModal();
+  document.querySelector("#projectLogout").onclick=async()=>{await logout(); cloud=null;currentUser=null;state.records={};elements.projectDialog.close();showLogin();};
+  document.querySelector("#createSharedProject").onclick=async(event)=>{
+    event.target.disabled=true;
+    try { const id=await cloud.createProject(); await openProject(id); }
+    catch(error){document.querySelector("#projectMessage").textContent=error.message;event.target.disabled=false;}
+  };
+}
+async function beginCloud(workspace) {
+  cloud=workspace;
+  currentUser={...cloud.user,role:"worker"};
+  document.querySelector("#loginDialog").close();
+  document.querySelector("#loginPassword").value="";
+  await chooseProject();
+}
+function operationLabel(operation) {
+  const [room,zone,code]=operation.key.split(":");
+  const task=tasksByZone[zone]?.find(t=>t.id===code);
+  return "Chambre "+room+" — "+(task?.label || code);
+}
+async function renderSync() {
+  if(!cloud?.snapshot) return;
+  const operations=await cloud.engine.operations(cloud.snapshot.projectId);
+  const pending=operations.filter(o=>o.state==="pending").length;
+  const problems=operations.filter(o=>o.state!=="pending");
+  document.querySelector("#saveStatus").textContent=problems.length ? problems.length+" modification(s) à examiner"
+    : pending ? pending+" modification(s) en attente de synchronisation"
+    : navigator.onLine ? "Synchronisé" : "Hors connexion — copie locale";
+  document.querySelector("#syncProblems").innerHTML=problems.map(o=>'<article class="activity-item"><strong>'+escapeSvgText(operationLabel(o))+'</strong><p>Votre saisie : '+o.payload.progress+' % — '+escapeSvgText(syncError(o.error))+'</p><p>'+escapeSvgText(o.payload.note)+'</p><button type="button" class="button secondary" data-discard-task="'+o.taskId+'">Conserver la valeur du serveur</button><p>Pour proposer une correction, conservez la valeur du serveur puis effectuez une nouvelle saisie autorisée.</p></article>').join("");
+}
+function syncError(code) {
+  return ({assignment_changed:"L'affectation a changé.",version_conflict:"Une autre modification a été enregistrée.",
+    permission_denied:"Vos droits ne permettent pas cette modification.",dependency_failed:"Une saisie précédente doit être résolue.",
+    task_archived:"Cette tâche a été archivée.",invalid_payload:"La saisie n'est pas valide.",
+    correction_required:"Une correction administrative est nécessaire."})[code] || code || "Modification refusée.";
+}
+async function syncCloud() {
+  if(!cloud?.snapshot || synchronizing || !navigator.onLine) { await renderSync(); return; }
+  const workspace=cloud; synchronizing=true;
+  try {
+    await saveQueue;
+    await workspace.sync();
+    if(cloud!==workspace) return;
+    currentUser={...workspace.user,role:workspace.snapshot.role};
+    project=await workspace.project();state.records=project.floors[CURRENT_FLOOR].records;
+    if(!roomAccessible(state.selectedRoom)) state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
+    render(); await renderSync();
+  } catch(error) {
+    if(cloud===workspace) { currentUser={...workspace.user,role:workspace.snapshot.role}; render(); await renderSync(); document.querySelector("#saveStatus").textContent="Synchronisation en attente : "+error.message; }
+  } finally { synchronizing=false; }
+}
+async function renderAdminPage() {
+  if(!cloud || currentUser?.role!=="admin") return;
+  if(adminPage==="team") {
+    const snapshot=cloud.snapshot;
+    document.querySelector("#teamList").innerHTML=snapshot.members.map(m=>
+      '<article class="team-member"><div><h3>'+escapeSvgText(m.name)+'</h3><p>'+m.role+' — '+m.status+'</p></div></article>').join("");
+    const roomInput=document.querySelector("#assignmentRoom");
+    const previous=roomInput.value;
+    roomInput.innerHTML=rooms.map(r=>'<option value="'+r.number+'">Chambre '+r.number+' — Bloc '+r.blockId+'</option>').join("");
+    if(previous) roomInput.value=previous;
+    renderAssignmentTasks();
+  } else if(adminPage==="history") {
+    const history=await cloud.history();
+    document.querySelector("#activityList").innerHTML=history.map(item=>{
+      const task=cloud.snapshot.tasks.find(t=>t.id===item.room_task_id);
+      const member=cloud.snapshot.members.find(m=>m.user_id===item.changed_by);
+      return '<article class="activity-item"><strong>'+escapeSvgText(member?.name || "Import")+'</strong><p>'+escapeSvgText(task?.key || item.room_task_id)+' : '+item.before_state.progress+' % → '+item.after_state.progress+' %</p><small>'+new Date(item.created_at).toLocaleString("fr-FR")+'</small></article>';
+    }).join("") || '<p class="empty-state">Aucune modification enregistrée.</p>';
+  }
+}
+function renderAssignmentTasks() {
+  if(!cloud?.snapshot) return;
+  const room=document.querySelector("#assignmentRoom").value;
+  document.querySelector("#assignmentTask").innerHTML=cloud.snapshot.tasks.filter(t=>t.active && t.key.startsWith(room+":")).map(t=>{
+    const [,zone,code]=t.key.split(":");
+    const label=tasksByZone[zone]?.find(k=>k.id===code)?.label || code;
+    return '<option value="'+t.id+'">'+escapeSvgText(({bedroom:"Chambre",bathroom:"Salle de bain",loggia:"Loggia"})[zone]+" — "+label)+'</option>';
+  }).join("");
+  document.querySelector("#assignmentPerson").innerHTML='<option value="">Non affectée</option>'+cloud.snapshot.members.filter(m=>m.status==="active"&&m.role!=="viewer").map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join("");
+  renderAssignmentPerson();
+}
+function renderAssignmentPerson() {
+  const assignment=cloud.snapshot.assignments.find(a=>a.room_task_id===document.querySelector("#assignmentTask").value);
+  document.querySelector("#assignmentPerson").value=assignment?.assignee_id || "";
+}
+document.querySelector("#assignmentRoom").onchange=renderAssignmentTasks;
+document.querySelector("#assignmentTask").onchange=renderAssignmentPerson;
+document.querySelector("#assignmentForm").onsubmit=async(event)=>{
+  event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
+  try {await cloud.assign(document.querySelector("#assignmentTask").value,document.querySelector("#assignmentPerson").value || null);await renderAdminPage();document.querySelector("#teamMessage").textContent="Affectation de cette tâche enregistrée.";}
+  catch(error){document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
+};
+document.querySelector("#memberForm").onsubmit=async(event)=>{
+  event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
+  try {await cloud.member(document.querySelector("#memberId").value.trim(),document.querySelector("#memberRole").value,document.querySelector("#memberStatus").value);await renderAdminPage();document.querySelector("#teamMessage").textContent="Membre mis à jour.";}
+  catch(error){document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
+};
+document.querySelector("#adminNavigation").onclick=async(event)=>{
+  const button=event.target.closest("[data-admin-page]");if(!button)return;
+  adminPage=button.dataset.adminPage;renderAccessShell();
+  try{await renderAdminPage();if(adminPage==="dashboard")requestAnimationFrame(fitPlan);}
+  catch(error){document.querySelector("#saveStatus").textContent=error.message;}
+};
+document.querySelector("#profileButton").onclick=()=>{
+  const user=cloud.user;
+  document.querySelector("#profileMetadata").innerHTML='<dt>Nom</dt><dd>'+escapeSvgText(user.user_metadata?.display_name || user.email || "")+'</dd><dt>Identifiant à communiquer à votre administrateur</dt><dd>'+escapeSvgText(user.id)+'</dd><dt>Rôle dans ce projet</dt><dd>'+escapeSvgText(currentUser.role)+'</dd>';
+  document.querySelector("#profileDialog").showModal();
+};
+document.querySelector("#closeProfile").onclick=()=>document.querySelector("#profileDialog").close();
+document.querySelector("#logoutButton").onclick=async()=>{
+  await saveQueue;
+  const pending=cloud?.snapshot ? await cloud.engine.operations(cloud.snapshot.projectId) : [];
+  if(pending.length && !confirm("Des modifications restent sur cet appareil. Elles seront conservées pour ce compte. Se déconnecter ?"))return;
+  await logout();cloud=null;currentUser=null;state.records={};accessReady=false;
+  document.querySelector("#profileDialog").close();showLogin();
+};
+document.querySelector("#loginDialog").addEventListener("cancel",event=>event.preventDefault());
+document.querySelector("#toggleRegister").onclick=()=>{
+  registrationMode=!registrationMode;
+  document.querySelector("#loginNameField").hidden=!registrationMode;
+  document.querySelector("#loginSubmit").textContent=registrationMode?"Créer mon compte":"Se connecter";
+  document.querySelector("#toggleRegister").textContent=registrationMode?"J'ai déjà un compte":"Créer un compte";
+  document.querySelector("#loginPassword").autocomplete=registrationMode?"new-password":"current-password";
+};
+document.querySelector("#loginForm").onsubmit=async(event)=>{
+  event.preventDefault();const button=document.querySelector("#loginSubmit");button.disabled=true;
+  try{
+    const workspace=await login(document.querySelector("#loginEmail").value,document.querySelector("#loginPassword").value,
+      registrationMode?document.querySelector("#loginName").value:undefined);
+    if(workspace)await beginCloud(workspace);
+    else {document.querySelector("#loginError").textContent="Vérifiez votre e-mail pour confirmer votre compte, puis connectez-vous.";document.querySelector("#loginError").hidden=false;}
+  }catch(error){document.querySelector("#loginError").textContent=error.message;document.querySelector("#loginError").hidden=false;}
+  finally{button.disabled=false;}
+};
+document.querySelector("#syncButton").onclick=()=>{document.querySelector("#syncDialog").showModal();void renderSync();};
+document.querySelector("#closeSync").onclick=()=>document.querySelector("#syncDialog").close();
+document.querySelector("#retrySync").onclick=()=>void syncCloud();
+document.querySelector("#syncProblems").onclick=async(event)=>{
+  const button=event.target.closest("[data-discard-task]");if(!button)return;
+  if(!confirm("Conserver la valeur du serveur pour cette tâche ? Votre proposition restera archivée localement."))return;
+  await cloud.exclusive(()=>cloud.engine.discard(cloud.snapshot.projectId,button.dataset.discardTask));
+  project=await cloud.project();state.records=project.floors[CURRENT_FLOOR].records;render();await renderSync();
+};
+document.querySelector("#refreshData").onclick=()=>localMode?location.reload():void syncCloud();
+window.addEventListener("online",()=>void syncCloud());
+window.addEventListener("offline",()=>void renderSync());
+setInterval(()=>{if(document.visibilityState==="visible")void syncCloud();},30000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void syncCloud();});
+async function initializeAccess() {
+  renderAccessShell();
+  if(localMode){currentUser={id:"local",role:"admin"};await openProject("mixed-use");return;}
+  try{const workspace=await restoreWorkspace();if(workspace)await beginCloud(workspace);else showLogin();}
+  catch(error){showLogin(error.message);}
+}
+void initializeAccess();
+
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(error => console.error("Cache hors connexion indisponible", error));
+}

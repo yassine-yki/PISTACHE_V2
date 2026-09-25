@@ -6,7 +6,7 @@ Application Windows pour suivre l’avancement des travaux des **40 chambres du 
 
 1. Ouvrez le dossier du projet.
 2. Double-cliquez sur **Lancer le suivi.cmd**.
-3. Dans le navigateur, choisissez **Mixed Use**.
+3. Le projet **Mixed Use** s’ouvre automatiquement en mode local.
 4. Sélectionnez une chambre pour consulter et mettre à jour son avancement.
 
 L’application fonctionne sans Internet. Pour cette utilisation, vous n’avez pas besoin d’installer Python, Node.js ou pnpm.
@@ -63,3 +63,11 @@ pnpm run build
 Cette commande prépare les fichiers utilisés par **Lancer le suivi.cmd**. Rechargez ensuite la page de la version quotidienne.
 
 Pour vérifier le code, utilisez `pnpm run check` et `pnpm test`. Les détails d’architecture sont dans [la documentation technique](docs/architecture-technique.md).
+
+## Version partagée avec Supabase
+
+La connexion, le profil, l’administration des membres et l’affectation des tâches sont prêts à être configurés avec Supabase. **Chaque tâche de chaque chambre a un seul intervenant** ; appartenir au même bloc ne permet pas de modifier les tâches d’un collègue.
+
+Sans configuration Supabase, les instructions de stockage local ci-dessus restent applicables. En mode partagé, les données acceptées sont dans Supabase et les saisies hors connexion restent sur l’appareil jusqu’à synchronisation. La mention « Synchronisé » confirme leur enregistrement sur le serveur. Les avancements locaux existants ne sont pas importés automatiquement.
+
+Suivre [le guide de configuration et de synchronisation](docs/supabase-et-synchronisation.md) pour activer ce mode et ajouter les collègues.
