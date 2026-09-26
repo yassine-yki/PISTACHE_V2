@@ -139,7 +139,8 @@ function isPolygon(entity) {
   if (entity.shape) return true;
   const first = entity.vertices[0];
   const last = entity.vertices.at(-1);
-  return Math.hypot(first.x - last.x, first.y - last.y) < 0.05;
+  const tolerance = ["CHAMBRE", "SDB", "LOGGIA"].includes(normalizedLayer(entity.layer)) ? 0.1 : 0.05;
+  return entity.vertices.length >= 3 && Math.hypot(first.x - last.x, first.y - last.y) < tolerance;
 }
 
 function pointInPolygon(point, vertices) {
@@ -841,7 +842,7 @@ let dragState = null;
 let suppressPlanClick = false;
 
 elements.planViewport.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) return;
+  if (event.pointerType === "touch" || event.button !== 0) return;
   dragState = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY, moved: false };
 });
 
@@ -872,6 +873,47 @@ function stopDragging(event) {
 
 elements.planViewport.addEventListener("pointerup", stopDragging);
 elements.planViewport.addEventListener("pointercancel", stopDragging);
+
+// One finger scrolls the page; two fingers zoom and move the plan.
+let pinchState = null;
+let pinchInProgress = false;
+function touchGeometry(touches) {
+  const rect = elements.planViewport.getBoundingClientRect();
+  const [a, b] = touches;
+  return { x: (a.clientX+b.clientX)/2-rect.left, y: (a.clientY+b.clientY)/2-rect.top,
+    distance: Math.max(1,Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY)) };
+}
+elements.planViewport.addEventListener("touchstart", event => {
+  if(event.touches.length !== 2) return;
+  event.preventDefault();
+  pinchInProgress = true;
+  suppressPlanClick = true;
+  pinchState = touchGeometry(event.touches);
+}, {passive:false});
+elements.planViewport.addEventListener("touchmove", event => {
+  if(!pinchInProgress) return;
+  event.preventDefault();
+  if(event.touches.length !== 2) { pinchState=null; return; }
+  const next=touchGeometry(event.touches);
+  if(pinchState) {
+    setZoom(state.zoom*next.distance/pinchState.distance,pinchState.x,pinchState.y);
+    state.panX+=next.x-pinchState.x;
+    state.panY+=next.y-pinchState.y;
+    renderZoom();
+  }
+  pinchState=next;
+}, {passive:false});
+function endPinch(event) {
+  if(!pinchInProgress) return;
+  if(event.cancelable) event.preventDefault();
+  pinchState=null;
+  if(event.touches.length === 0) {
+    pinchInProgress=false;
+    window.setTimeout(()=>{suppressPlanClick=false;},350);
+  }
+}
+elements.planViewport.addEventListener("touchend",endPinch,{passive:false});
+elements.planViewport.addEventListener("touchcancel",endPinch,{passive:false});
 
 let planLoadVersion = 0;
 async function loadDxfSource(source, name, size, version = ++planLoadVersion) {
@@ -1141,7 +1183,7 @@ async function renderAdminPage() {
     const scope=await cloud.assignmentScope();
     const activeFloors=scope.floors.filter(f=>!f.archived_at);
     document.querySelector("#assignmentBlocks").innerHTML='<legend>Étages et blocs</legend>'+activeFloors.map(f=>
-      '<div class="assignment-floor"><strong>'+escapeSvgText(f.label)+'</strong>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).map(b=>{
+      '<div class="assignment-floor"><strong>'+escapeSvgText(f.label)+'</strong><label class="block-assignment"><input type="checkbox" name="assignmentFloor" value="'+f.id+'"><span>Tout cet étage</span></label>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).map(b=>{
         const roomIds=new Set(scope.rooms.filter(r=>r.block_id===b.id&&!r.archived_at).map(r=>r.id));
         const taskIds=new Set(scope.tasks.filter(t=>roomIds.has(t.room_id)&&!t.archived_at).map(t=>t.id));
         const people=[...new Set(scope.assignments.filter(a=>!a.ended_at&&taskIds.has(a.room_task_id)).map(a=>snapshot.members.find(m=>m.user_id===a.assignee_id)?.name||"Intervenant"))];
@@ -1163,8 +1205,12 @@ document.querySelector("#assignmentForm").onsubmit=async(event)=>{
   document.querySelector("#assignmentMessage").textContent="Enregistrement des affectations en cours…";
   try {
     const blockIds=[...document.querySelectorAll('input[name="assignmentBlock"]:checked')].map(input=>input.value);
-    if(!blockIds.length) throw new Error("Sélectionnez au moins un bloc dans un étage.");
-    const count=await cloud.assignBlocks(blockIds,document.querySelector("#assignmentPerson").value||null);
+    const floorIds=[...document.querySelectorAll('input[name="assignmentFloor"]:checked')].map(input=>input.value);
+    if(!blockIds.length && !floorIds.length) throw new Error("Sélectionnez au moins un étage ou un bloc.");
+    const person=document.querySelector("#assignmentPerson").value||null;
+    let count=0;
+    if(blockIds.length) count+=await cloud.assignBlocks(blockIds,person);
+    if(floorIds.length) count+=await cloud.assignFloors(floorIds,person);
     await renderAdminPage();
     const message=count ? count+" affectations de tâches enregistrées." : "Affectations déjà à jour pour les blocs sélectionnés.";
     document.querySelector("#assignmentMessage").textContent=message;

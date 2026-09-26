@@ -332,4 +332,24 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     assert.equal((await first('select label from public.task_types where id=$1',[type])).label,'New label');
   });
 
+  await t.test('tracking floors seed 129 rooms and support whole-floor assignment without resetting progress',async()=>{
+    await db.exec('reset role');
+    await db.exec(await readFile(new URL('../supabase/migrations/0007_tracking_floors.sql',import.meta.url),'utf8'));
+    await login(admin);
+    const p=(await first('select public.create_mixed_use_project() as id')).id;
+    assert.equal((await first('select count(*)::int as n from public.rooms where project_id=$1',[p])).n,129);
+    const f=(await first("select id from public.floors where project_id=$1 and code='r5'",[p])).id;
+    assert.equal((await first('select public.assign_floors($1,$2,$3) as n',[p,[f],admin])).n,1750);
+    assert.equal((await first('select public.assign_floors($1,$2,$3) as n',[p,[f],admin])).n,0);
+    await login(worker);
+    await reject('select public.assign_floors($1,$2,$3)',[p,[f],worker],/project_admin_required/);
+  });
+
+  await t.test('upgrade script can be reapplied without removing visibility enforcement',async()=>{
+    await db.exec('reset role');
+    await db.exec(await readFile(new URL('../supabase/upgrade_existing_project.sql',import.meta.url),'utf8'));
+    const body=(await first("select prosrc from pg_proc where oid='public.submit_progress(uuid,uuid,uuid,uuid,bigint,timestamptz,jsonb,uuid)'::regprocedure")).prosrc;
+    assert.ok(body.includes('task_hidden'));
+  });
+
 });

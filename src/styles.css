@@ -715,3 +715,12 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
 .task-management-form { width: 100%; max-width: 760px; }
 .task-member-option { display: block; padding: 6px 0; }
 .task-management-form input[type="checkbox"] { width: auto; }
+
+/* Keep the mobile plan compact and let one-finger swipes scroll the page. */
+@media (max-width: 820px) {
+  .plan-stage, body[data-role="worker"] .plan-stage { height: clamp(220px, 36svh, 320px); flex: none; }
+  .plan-stage .plan-viewport { min-height: 0; max-height: none; }
+}
+@media (pointer: coarse) {
+  .plan-viewport { touch-action: pan-y; cursor: default; }
+}

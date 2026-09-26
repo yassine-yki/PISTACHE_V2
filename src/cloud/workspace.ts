@@ -182,6 +182,12 @@ export class CloudWorkspace {
     await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
     return count;
   }
+  async assignFloors(floorIds: string[], userId: string | null) {
+    if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour modifier les affectations.");
+    const count=await unwrap(client!.rpc("assign_floors",{p_project_id:this.snapshot!.projectId,p_floor_ids:floorIds,p_assignee_id:userId}));
+    await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
+    return count;
+  }
   async createProject() {
     if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour créer un projet.");
     return await unwrap(client!.rpc("create_mixed_use_project")) as string;
