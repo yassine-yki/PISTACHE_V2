@@ -29,4 +29,28 @@ export const R2_ROOMS: RoomDefinition[] = R2_ROOM_INPUT
   }))
   .sort((first, second) => first.number - second.number);
 
+const cloneFloorRooms = (source: RoomDefinition[], floorId: string, offset: number): RoomDefinition[] =>
+  source.map((room) => ({
+    ...room,
+    id: `${floorId}-${room.number + offset}`,
+    floorId,
+    number: room.number + offset,
+  }));
+
+const detectedFloorRooms = (floorId: string, numbers: number[]): RoomDefinition[] =>
+  numbers.map((number) => ({
+    id: `${floorId}-${number}`,
+    floorId,
+    number,
+    blockId: null,
+    roomType: "standard",
+  }));
+
+export const ROOMS_BY_FLOOR: Record<string, RoomDefinition[]> = {
+  r2: R2_ROOMS,
+  r3: cloneFloorRooms(R2_ROOMS, "r3", 100),
+  r4: detectedFloorRooms("r4", Array.from({ length: 24 }, (_, index) => 401 + index)),
+  r5: detectedFloorRooms("r5", Array.from({ length: 25 }, (_, index) => 501 + index)),
+};
+
 export const R2_BLOCKS = ["A", "B", "C"] as const;

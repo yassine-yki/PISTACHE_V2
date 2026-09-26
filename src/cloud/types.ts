@@ -1,7 +1,7 @@
 import type { ProgressRecord } from "../model.js";
 export type Role = "admin" | "worker" | "viewer";
 export type CloudTask = {
-  id: string; key: string; version: number; record: ProgressRecord; active: boolean;
+  id: string; key: string; floorCode?: string; version: number; record: ProgressRecord; active: boolean;
 };
 export type Assignment = { id: string; room_task_id: string; assignee_id: string; ended_at: string | null };
 export type Member = { user_id: string; role: Role; status: string; name: string };

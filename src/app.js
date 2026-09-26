@@ -1,7 +1,7 @@
 import { CURRENT_FLOOR, emptyProject, projectDay, lockedProgress, taskGroup, tasksByZone } from "./model.js";
 import { cleanDxfText, roomNumberFromText } from "./dxf-identification.js";
 import { createProjectRepository } from "./repositories/index.js";
-import { R2_ROOMS } from "./project-data.js";
+import { ROOMS_BY_FLOOR } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
 import { cloudConfigured, login, logout, restoreWorkspace, resendConfirmation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
@@ -34,7 +34,7 @@ function persistProject(key, correction = null, previousRecord = null) {
       document.querySelector("#saveStatus").textContent="Brouillon enregistré sur cet appareil — non partagé";
     } else {
       project=await cloud.enqueue(key,record,correction,previousRecord);
-      state.records=project.floors[CURRENT_FLOOR].records;
+      state.records=currentFloorRecords();
       await renderSync();
     }
   }).catch(error => {
@@ -45,12 +45,12 @@ function persistProject(key, correction = null, previousRecord = null) {
   return saveQueue;
 }
 
-const roomDefinitions = new Map(R2_ROOMS.map((room) => [room.number, room]));
-let rooms = R2_ROOMS;
+let rooms = ROOMS_BY_FLOOR[CURRENT_FLOOR];
 const loggiaRooms = new Set([203, 206, 209, 210, 212, 214, 217, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236]);
 
 const state = {
   selectedRoom: 203,
+  selectedFloor: CURRENT_FLOOR,
   selectedZone: "bedroom",
   selectedTask: "partitions",
   selectedType: "all",
@@ -67,6 +67,19 @@ const state = {
   importedTypes: {},
   records: project.floors[CURRENT_FLOOR].records,
 };
+
+function floorDefinition() {
+  return activeProjectDefinition?.floors?.find((floor) => floor.id === state.selectedFloor) || activeProjectDefinition?.floors?.[0] || null;
+}
+
+function roomDefinitions() {
+  return new Map((ROOMS_BY_FLOOR[state.selectedFloor] || []).map((room) => [room.number, room]));
+}
+
+function currentFloorRecords() {
+  project.floors[state.selectedFloor] ||= { records: {} };
+  return project.floors[state.selectedFloor].records;
+}
 
 const elements = {
   planContent: document.querySelector("#planContent"),
@@ -94,6 +107,7 @@ const elements = {
   projectDialog: document.querySelector("#projectDialog"),
   projectList: document.querySelector("#projectList"),
   projectSubtitle: document.querySelector("#projectSubtitle"),
+  floorSelect: document.querySelector("#floorSelect"),
   taskSearch: document.querySelector("#taskSearch"),
   taskLock: document.querySelector("#taskLock"),
   correctionTrigger: document.querySelector("#correctionTrigger"),
@@ -110,6 +124,10 @@ const elements = {
 
 function normalizedLayer(name) {
   return String(name || "").trim().toUpperCase();
+}
+
+function trackedRoomNumber(number) {
+  return Number.isInteger(number) && number >= 201 && number <= 540;
 }
 
 function entityPoint(entity) {
@@ -146,6 +164,15 @@ function boundsFromPoints(points) {
     maxX: Math.max(...points.map((point) => point.x)),
     minY: Math.min(...points.map((point) => point.y)),
     maxY: Math.max(...points.map((point) => point.y)),
+  };
+}
+
+function expandBounds(bounds, padding) {
+  return {
+    minX: bounds.minX - padding,
+    maxX: bounds.maxX + padding,
+    minY: bounds.minY - padding,
+    maxY: bounds.maxY + padding,
   };
 }
 
@@ -234,31 +261,27 @@ function layoutViewBounds(source) {
 function buildDxfModel(dxf, layoutBounds = null) {
   const entities = (dxf.entities || []).filter((entity) => !entity.inPaperSpace);
   const roomShapes = entities.filter((entity) => normalizedLayer(entity.layer) === "CHAMBRE" && isPolygon(entity));
+  const bathrooms = entities.filter((entity) => normalizedLayer(entity.layer) === "SDB" && isPolygon(entity));
+  const loggias = entities.filter((entity) => normalizedLayer(entity.layer) === "LOGGIA" && isPolygon(entity));
   const textEntities = entities
     .filter((entity) => normalizedLayer(entity.layer) === "A-AREA-IDEN" && ["TEXT", "MTEXT"].includes(entity.type))
     .map((entity) => ({ ...entity, point: entityPoint(entity), cleanText: cleanDxfText(entity.text) }))
     .filter((entity) => entity.point);
   const numberedTexts = [...new Map(textEntities.map((text) => {
     const number = roomNumberFromText(text.cleanText);
-    return number >= 201 && number <= 240 ? [number, { ...text, roomNumber: number }] : [null, null];
+    return trackedRoomNumber(number) ? [number, { ...text, roomNumber: number }] : [null, null];
   }).filter(([number]) => number)).values()].sort((first, second) => first.roomNumber - second.roomNumber);
 
-  if (!numberedTexts.length) throw new Error("Aucun numéro CHAMBRE 201 à 240 trouvé dans A-AREA-IDEN");
+  if (!numberedTexts.length) throw new Error("Aucun numéro de chambre suivi trouvé dans A-AREA-IDEN");
 
   const rawBounds = boundsFromPoints(numberedTexts.map((text) => text.point));
   const width = rawBounds.maxX - rawBounds.minX;
   const height = rawBounds.maxY - rawBounds.minY;
   const padding = Math.max(2.5, Math.min(width, height) * 0.12);
-  const labelBounds = {
-    minX: rawBounds.minX - padding,
-    maxX: rawBounds.maxX + padding,
-    minY: rawBounds.minY - padding,
-    maxY: rawBounds.maxY + padding,
-  };
-  const detailBounds = layoutBounds || labelBounds;
-
-  const bathrooms = entities.filter((entity) => normalizedLayer(entity.layer) === "SDB" && isPolygon(entity));
-  const loggias = entities.filter((entity) => normalizedLayer(entity.layer) === "LOGGIA" && isPolygon(entity));
+  const labelBounds = expandBounds(rawBounds, padding);
+  const shapePoints = [...roomShapes, ...bathrooms, ...loggias].flatMap((shape) => shape.vertices || []);
+  const shapeBounds = shapePoints.length ? expandBounds(boundsFromPoints(shapePoints), Math.max(2.5, Math.min(width, height) * 0.08)) : null;
+  const detailBounds = layoutBounds || shapeBounds || labelBounds;
   const loggiaLabels = entities
     .filter((entity) => ["A-AREA-IDEN", "LOGGIA"].includes(normalizedLayer(entity.layer)) && ["TEXT", "MTEXT"].includes(entity.type))
     .map((entity) => {
@@ -266,7 +289,7 @@ function buildDxfModel(dxf, layoutBounds = null) {
       const match = label.match(/^(?:(?:CHAMBRE|LOGGIA)\s*[-:]?\s*)?(\d{3})(?!\d)(?:$|\^J|\\P)/i);
       return { point: entityPoint(entity), number: match ? Number(match[1]) : null };
     })
-    .filter((label) => label.point && label.number >= 201 && label.number <= 240);
+    .filter((label) => label.point && trackedRoomNumber(label.number));
   const loggiaItems = loggias.map((shape) => {
     const numbers = [...new Set(loggiaLabels.filter((label) => pointInPolygon(label.point, shape.vertices)).map((label) => label.number))];
     return { polygon: shape.vertices, number: numbers.length === 1 ? numbers[0] : null, center: polygonCenter(shape.vertices) };
@@ -717,7 +740,10 @@ function fitPlan() {
   const viewportHeight = elements.planViewport.clientHeight;
   const planWidth = Math.max(1, viewportWidth - 32);
   const planHeight = planWidth / state.planAspect;
-  const scale = Math.min(1, (viewportWidth - 32) / planWidth, (viewportHeight - 32) / planHeight);
+  const widePlanBoost = state.planAspect > 2.35 && viewportWidth < 700
+    ? Math.min(2.4, Math.max(1, (viewportHeight * 0.62) / planHeight))
+    : 1;
+  const scale = Math.min(widePlanBoost, (viewportWidth - 32) / planWidth * widePlanBoost, (viewportHeight - 32) / planHeight);
   state.zoom = Math.max(10, Math.floor(scale * 10) * 10);
   const fittedScale = state.zoom / 100;
   state.panX = (viewportWidth - planWidth * fittedScale) / 2;
@@ -840,20 +866,23 @@ function stopDragging(event) {
 elements.planViewport.addEventListener("pointerup", stopDragging);
 elements.planViewport.addEventListener("pointercancel", stopDragging);
 
-async function loadDxfSource(source, name, size) {
+let planLoadVersion = 0;
+async function loadDxfSource(source, name, size, version = ++planLoadVersion) {
   elements.importStatus.classList.remove("error");
   elements.importStatus.textContent = "Analyse du DXF...";
   await new Promise((resolve) => window.setTimeout(resolve, 20));
 
   try {
+    if (version !== planLoadVersion) return;
     const parser = new window.DxfParser();
     const dxf = parser.parseSync(source);
     const model = buildDxfModel(dxf, layoutViewBounds(source));
     state.dxfModel = model;
     state.importedTypes = Object.fromEntries(model.rooms.map((room) => [room.number, room.typeText]));
-    rooms = model.rooms.map((room) => roomDefinitions.get(room.number) || {
-      id: `r2-${room.number}`,
-      floorId: CURRENT_FLOOR,
+    const definitions=roomDefinitions();
+    rooms = model.rooms.map((room) => definitions.get(room.number) || {
+      id: `${state.selectedFloor}-${room.number}`,
+      floorId: state.selectedFloor,
       number: room.number,
       blockId: null,
       roomType: "standard",
@@ -870,7 +899,7 @@ async function loadDxfSource(source, name, size) {
     const loggiaCount = model.rooms.reduce((count, room) => count + room.loggias.length, 0);
     const metadata = { name, size, extension: "dxf", rooms: model.rooms.length, bathroomCount, loggiaCount };
     if (activeProjectDefinition) {
-      localStorage.setItem(`suivi-hotel-import-meta:${activeProjectDefinition.id}`, JSON.stringify(metadata));
+      localStorage.setItem(`suivi-hotel-import-meta:${activeProjectDefinition.id}:${state.selectedFloor}`, JSON.stringify(metadata));
     }
     elements.importStatus.textContent = "";
     elements.importStatus.title = `${name} - ${bathroomCount} SDB - ${loggiaCount} loggias associées`;
@@ -884,9 +913,9 @@ async function loadDxfSource(source, name, size) {
 function clearPlan(message) {
   state.dxfModel = null;
   state.importedTypes = {};
-  rooms = R2_ROOMS;
+  rooms = ROOMS_BY_FLOOR[state.selectedFloor] || [];
   loggiaRooms.clear();
-  state.selectedRoom = rooms[0].number;
+  state.selectedRoom = rooms[0]?.number ?? null;
   state.selectedBlock = "all";
   state.selectedType = "all";
   state.selectedZone = "bedroom";
@@ -898,19 +927,30 @@ function clearPlan(message) {
 }
 
 async function loadConfiguredPlan(projectDefinition) {
-  if (!projectDefinition.dxfPath) {
-    clearPlan("Le plan DXF du R+2 n'est pas encore configuré pour ce projet.");
-    elements.importStatus.textContent = "Plan R+2 à configurer";
+  const version = ++planLoadVersion;
+  const floor=floorDefinition();
+  if (!floor?.dxfPath) {
+    clearPlan("Le plan DXF de cet étage n'est pas encore configuré pour ce projet.");
+    elements.importStatus.textContent = "Plan à configurer";
     elements.importStatus.classList.add("error");
     return;
   }
+  state.dxfModel = null;
+  state.importedTypes = {};
+  elements.dxfPlan.innerHTML = "";
+  elements.planEmpty.hidden = false;
+  elements.planEmpty.textContent = "Chargement du plan " + (floor.label || state.selectedFloor) + "...";
+  elements.importStatus.classList.remove("error");
+  elements.importStatus.textContent = "Chargement du plan " + (floor.label || state.selectedFloor) + "...";
   try {
-    const response = await fetch(projectDefinition.dxfPath);
+    const response = await fetch(`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt || ""))}`);
     if (!response.ok) throw new Error(`Plan introuvable (${response.status})`);
     const source = await response.text();
-    const name = projectDefinition.dxfPath.split("/").at(-1) || "plan.dxf";
-    await loadDxfSource(source, name, source.length);
+    const name = floor.dxfPath.split("/").at(-1) || "plan.dxf";
+    if (version !== planLoadVersion) return;
+    await loadDxfSource(source, name, source.length, version);
   } catch (error) {
+    if (version !== planLoadVersion) return;
     console.error("Plan DXF du projet illisible", error);
     clearPlan("Le plan DXF configuré pour ce projet ne peut pas être chargé.");
     elements.importStatus.textContent = error instanceof Error ? error.message : "Plan DXF illisible";
@@ -929,15 +969,35 @@ async function openProject(projectId) {
     currentUser={...cloud.user,role:cloud.snapshot.role};
     activeProjectDefinition={...PROJECT_CATALOG[0],id:projectId,name:cloud.snapshot.name};
   }
-  state.records=project.floors[CURRENT_FLOOR].records;
-  elements.projectSubtitle.textContent=activeProjectDefinition.name+" — R+2";
+  const floors=activeProjectDefinition.floors || [{id:CURRENT_FLOOR,label:"R+2"}];
+  if(!floors.some((floor)=>floor.id===state.selectedFloor)) state.selectedFloor=floors[0].id;
+  elements.floorSelect.innerHTML=floors.map((floor)=>'<option value="'+floor.id+'">'+escapeSvgText(floor.label)+'</option>').join("");
+  elements.floorSelect.value=state.selectedFloor;
+  state.records=currentFloorRecords();
+  elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
   elements.projectDialog.close();
   accessReady=true;adminPage="dashboard";state.selectedBlock="all";state.selectedType="all";
-  if(localMode || currentUser?.role==="admin") await loadConfiguredPlan(activeProjectDefinition);
-  else {rooms=R2_ROOMS;state.dxfModel=null;elements.dxfPlan.innerHTML="";}
+  await loadConfiguredPlan(activeProjectDefinition);
   state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
   render();if(!localMode){await renderSync();void syncCloud();}
 }
+
+async function changeFloor(floorId) {
+  await saveQueue;
+  if (floorId === state.selectedFloor) return;
+  state.selectedFloor=floorId;
+  elements.floorSelect.value=floorId;
+  state.records=currentFloorRecords();
+  state.selectedBlock="all";
+  state.selectedType="all";
+  elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
+  await loadConfiguredPlan(activeProjectDefinition);
+  state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
+  render();
+}
+
+elements.floorSelect.addEventListener("change", () => { void changeFloor(elements.floorSelect.value); });
+elements.floorSelect.addEventListener("input", () => { void changeFloor(elements.floorSelect.value); });
 
 elements.projectList.innerHTML = PROJECT_CATALOG.map((definition) => `
   <button class="project-choice" type="button" data-project-id="${definition.id}">
@@ -985,8 +1045,13 @@ function showLogin(message="") {
 }
 async function chooseProject() {
   const projects=await cloud.projects();
+  if(projects.length) {
+    await openProject(projects[0].id);
+    return;
+  }
   elements.projectList.innerHTML=projects.map(p=>'<button type="button" class="project-choice" data-project-id="'+escapeSvgText(p.id)+'"><strong>'+escapeSvgText(p.name)+'</strong><span>Ouvrir le projet partagé</span></button>').join("")
-    + '<p>Pour rejoindre un projet, transmettez votre identifiant à son administrateur : <code>'+escapeSvgText(cloud.user.id)+'</code></p>'
+    + '<p>Aucun projet n’est encore associé à ce compte. Un administrateur peut vous attribuer un rôle depuis l’onglet Équipe.</p>'
+    + '<p>Votre identifiant reste disponible si besoin : <code>'+escapeSvgText(cloud.user.id)+'</code></p>'
     + '<button type="button" class="button secondary" id="createSharedProject">Créer un projet Mixed Use</button>'
     + '<p>Un nouveau projet démarre à 0 %. Les anciennes saisies locales ne sont pas importées automatiquement.</p><p id="projectMessage" role="status"></p>'
     + '<button type="button" class="text-button" id="projectLogout">Changer de compte</button>';
@@ -1036,7 +1101,7 @@ async function syncCloud() {
     await workspace.sync();
     if(cloud!==workspace) return;
     currentUser={...workspace.user,role:workspace.snapshot.role};
-    project=await workspace.project();state.records=project.floors[CURRENT_FLOOR].records;
+    project=await workspace.project();state.records=currentFloorRecords();
     if(!roomAccessible(state.selectedRoom)) state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
     render(); await renderSync();
   } catch(error) {
@@ -1047,8 +1112,20 @@ async function renderAdminPage() {
   if(!cloud || currentUser?.role!=="admin") return;
   if(adminPage==="team") {
     const snapshot=cloud.snapshot;
-    document.querySelector("#teamList").innerHTML=snapshot.members.map(m=>
-      '<article class="team-member"><div><h3>'+escapeSvgText(m.name)+'</h3><p>'+m.role+' — '+m.status+'</p></div></article>').join("");
+    const people=await cloud.people().catch(()=>snapshot.members.map(member=>({id:member.user_id,name:member.name})));
+    const known=new Map(snapshot.members.map(member=>[member.user_id,member]));
+    const listed=[...people].sort((a,b)=>{
+      const memberA=known.get(a.id), memberB=known.get(b.id);
+      if(Boolean(memberA)!==Boolean(memberB)) return memberA ? -1 : 1;
+      return a.name.localeCompare(b.name,"fr");
+    });
+    document.querySelector("#teamList").innerHTML=listed.map(person=>{
+      const member=known.get(person.id);
+      const role=member?.role || "";
+      const status=member?.status || "inactive";
+      const statusText=member ? (status==="active"?"Actif":"Désactivé") : "Non affecté au projet";
+      return '<article class="team-member" data-user-id="'+person.id+'"><div><h3>'+escapeSvgText(person.name)+'</h3><p>'+escapeSvgText(statusText)+'</p><small>'+escapeSvgText(person.id)+'</small></div><label class="field compact-field"><span>Rôle</span><select data-member-role><option value="">À définir</option><option value="worker" '+(role==="worker"?"selected":"")+'>Intervenant</option><option value="viewer" '+(role==="viewer"?"selected":"")+'>Lecture seule</option><option value="admin" '+(role==="admin"?"selected":"")+'>Administrateur</option></select></label><label class="field compact-field"><span>Accès</span><select data-member-status '+(!member?"disabled":"")+'><option value="active" '+(status==="active"?"selected":"")+'>Actif</option><option value="inactive" '+(status==="inactive"?"selected":"")+'>Désactivé</option></select></label></article>';
+    }).join("") || '<p class="empty-state">Aucun compte créé pour le moment.</p>';
     const scope=await cloud.assignmentScope();
     const activeFloors=scope.floors.filter(f=>!f.archived_at);
     document.querySelector("#assignmentBlocks").innerHTML='<legend>Étages et blocs</legend>'+activeFloors.map(f=>
@@ -1075,13 +1152,30 @@ document.querySelector("#assignmentForm").onsubmit=async(event)=>{
     if(!blockIds.length) throw new Error("Sélectionnez au moins un bloc dans un étage.");
     const count=await cloud.assignBlocks(blockIds,document.querySelector("#assignmentPerson").value||null);
     await renderAdminPage();
-    document.querySelector("#teamMessage").textContent=count+" affectations de tâches mises à jour.";
-  } catch(error){document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
+    const message=count+" affectations de tâches mises à jour.";
+    document.querySelector("#teamMessage").textContent=message;
+    document.querySelector("#saveStatus").textContent=message;
+    document.querySelector("#teamMessage").classList.add("success");
+  } catch(error){document.querySelector("#teamMessage").classList.remove("success");document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
 };
-document.querySelector("#memberForm").onsubmit=async(event)=>{
-  event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
-  try {await cloud.member(document.querySelector("#memberId").value.trim(),document.querySelector("#memberRole").value,document.querySelector("#memberStatus").value);await renderAdminPage();document.querySelector("#teamMessage").textContent="Membre mis à jour.";}
-  catch(error){document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
+document.querySelector("#memberDirectory").onchange=async(event)=>{
+  const control=event.target.closest("[data-member-role],[data-member-status]");
+  if(!control)return;
+  const row=control.closest("[data-user-id]");
+  const role=row.querySelector("[data-member-role]").value;
+  const statusControl=row.querySelector("[data-member-status]");
+  const status=statusControl.value;
+  if(!role){document.querySelector("#teamMessage").classList.remove("success");document.querySelector("#teamMessage").textContent="Choisissez un rôle pour activer ce compte dans le projet.";return;}
+  control.disabled=true;
+  try {
+    await cloud.member(row.dataset.userId,role,statusControl.disabled?"active":status);
+    await renderAdminPage();
+    const message="Membre mis à jour.";
+    document.querySelector("#teamMessage").textContent=message;
+    document.querySelector("#saveStatus").textContent=message;
+    document.querySelector("#teamMessage").classList.add("success");
+  } catch(error){document.querySelector("#teamMessage").classList.remove("success");document.querySelector("#teamMessage").textContent=error.message;}
+  finally{control.disabled=false;}
 };
 document.querySelector("#adminNavigation").onclick=async(event)=>{
   const button=event.target.closest("[data-admin-page]");if(!button)return;
@@ -1175,7 +1269,7 @@ document.querySelector("#syncProblems").onclick=async(event)=>{
   const button=event.target.closest("[data-discard-task]");if(!button)return;
   if(!confirm("Conserver la valeur du serveur pour cette tâche ? Votre proposition restera archivée localement."))return;
   await cloud.exclusive(()=>cloud.engine.discard(cloud.snapshot.projectId,button.dataset.discardTask));
-  project=await cloud.project();state.records=project.floors[CURRENT_FLOOR].records;render();await renderSync();
+  project=await cloud.project();state.records=currentFloorRecords();render();await renderSync();
 };
 window.addEventListener("online",()=>void syncCloud());
 window.addEventListener("offline",()=>void renderSync());
@@ -1209,11 +1303,11 @@ document.querySelector("#confirmProgress").onclick=async()=>{
   try{
     if(localMode){
       const next=structuredClone(project);
-      for(const record of Object.values(next.floors[CURRENT_FLOOR].records))if(record.draft){
+      for(const record of Object.values(next.floors[state.selectedFloor].records))if(record.draft){
         if(record.progress<lockedProgress(record)&&!record.draftJustified)throw new Error("Justifiez les diminutions avant de valider.");
         record.lockedProgress=lockedProgress(record);record.confirmedProgress=record.progress;record.confirmedDay=projectDay();record.draft=false;record.draftJustified=false;delete record.draftBefore;
       }
-      await projectRepository.save(next);project=next;state.records=next.floors[CURRENT_FLOOR].records;
+      await projectRepository.save(next);project=next;state.records=currentFloorRecords();
       document.querySelector("#saveStatus").textContent="Saisies validées sur cet appareil — non partagées";
     }else{await cloud.confirmDrafts();await syncCloud();await renderSync();}
     render();
@@ -1230,13 +1324,13 @@ document.querySelector("#cancelProgress").onclick=async()=>{
   try{
     if(localMode){
       const next=structuredClone(project);
-      for(const [key,record] of Object.entries(next.floors[CURRENT_FLOOR].records))if(record.draft){
+      for(const [key,record] of Object.entries(next.floors[state.selectedFloor].records))if(record.draft){
         if(!record.draftBefore)throw new Error("Un ancien brouillon ne possède pas de copie antérieure. Il est conservé pour éviter une perte de données.");
-        next.floors[CURRENT_FLOOR].records[key]=record.draftBefore;
+        next.floors[state.selectedFloor].records[key]=record.draftBefore;
       }
       await projectRepository.save(next);project=next;
     }else{await cloud.cancelDrafts();project=await cloud.project();}
-    state.records=project.floors[CURRENT_FLOOR].records;
+    state.records=currentFloorRecords();
     resetCorrectionState();render();
     document.querySelector("#saveStatus").textContent="Brouillons annulés — valeurs validées conservées";
   }catch(error){document.querySelector("#saveStatus").textContent=error.message;}

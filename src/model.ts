@@ -1,4 +1,5 @@
 export const CURRENT_FLOOR = "r2";
+export const FLOOR_IDS = ["r2", "r3", "r4", "r5"] as const;
 export const SCHEMA_VERSION = 1;
 
 export type BlockId = string;
@@ -203,5 +204,5 @@ export function recordKey(room: number, zone: ZoneId, task: string): string {
 }
 
 export function emptyProject(): ProjectData {
-  return { schemaVersion: SCHEMA_VERSION, floors: { [CURRENT_FLOOR]: { records: {} } } };
+  return { schemaVersion: SCHEMA_VERSION, floors: Object.fromEntries(FLOOR_IDS.map((floorId) => [floorId, { records: {} }])) };
 }

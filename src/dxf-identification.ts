@@ -18,7 +18,7 @@ export function cleanDxfText(value: string): string {
 export function roomNumberFromText(value: string): number | null {
   const match = cleanDxfText(value).match(/CHAMBRE\s*[-:]?\s*(\d{3})/i);
   const number = match ? Number(match[1]) : null;
-  return number !== null && number >= 201 && number <= 240 ? number : null;
+  return number !== null && number >= 201 && number <= 540 ? number : null;
 }
 
 export function findRoomNumbers(entities: DxfRoomText[]): number[] {

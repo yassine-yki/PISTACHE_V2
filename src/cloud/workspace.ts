@@ -65,6 +65,14 @@ export class CloudWorkspace {
       return (await this.store.all<Snapshot>("snapshots")).map(s => ({id:s.projectId,name:s.name}));
     }
   }
+  async people(): Promise<{id: string; name: string; email?: string}[]> {
+    const profiles = await unwrap<any[] | null>(client!.from("profiles").select("id,display_name"));
+    const rows = profiles ?? [];
+    return rows.map(profile => ({
+      id: profile.id,
+      name: profile.display_name || profile.id,
+    }));
+  }
   async refresh(projectId: string) {
     const project: any = await unwrap(client!.from("projects").select("*").eq("id", projectId).single());
     const memberships = await allRows("project_members", projectId);
@@ -77,8 +85,8 @@ export class CloudWorkspace {
     const cloudTasks: CloudTask[] = tasks.flatMap(t => {
       const room = rooms.find(r=>r.id===t.room_id), type=types.find(k=>k.id===t.task_type_id);
       const floor=floors.find(f=>f.id===room?.floor_id), block=blocks.find(b=>b.id===room?.block_id);
-      if (!room || !type || floor?.code !== CURRENT_FLOOR) return [];
-      return [{ id:t.id,key:room.number+":"+type.zone+":"+type.code,version:Number(t.version),
+      if (!room || !type || !floor) return [];
+      return [{ id:t.id,floorCode:floor.code,key:room.number+":"+type.zone+":"+type.code,version:Number(t.version),
         active:![project.archived_at,t.archived_at,room.archived_at,type.archived_at,floor.archived_at,block?.archived_at].some(Boolean),
         record:{confirmedDay:t.confirmed_day,confirmedProgress:t.progress,lockedProgress:t.locked_progress??t.progress,progress:t.progress,blocked:t.blocked,note:t.note,startDate:t.start_date||"",endDate:t.end_date||""} }];
     });
@@ -101,7 +109,15 @@ export class CloudWorkspace {
   }
   async project() {
     const project=emptyProject();
-    if (this.snapshot) project.floors[CURRENT_FLOOR].records=await this.engine.records(this.snapshot.projectId);
+    if (this.snapshot) {
+      const records = await this.engine.records(this.snapshot.projectId);
+      const taskFloors = new Map(this.snapshot.tasks.map(task => [task.key, task.floorCode || CURRENT_FLOOR]));
+      for (const [key, record] of Object.entries(records)) {
+        const floor = taskFloors.get(key) || CURRENT_FLOOR;
+        project.floors[floor] ||= { records: {} };
+        project.floors[floor].records[key] = record;
+      }
+    }
     return project;
   }
   async enqueue(key: string, record: any, correction: any, previousRecord?: any) {
