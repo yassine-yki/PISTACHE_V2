@@ -188,6 +188,17 @@ export class CloudWorkspace {
     await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
     return count;
   }
+  async invitations() {
+    return (await unwrap<any[] | null>(client!.from("account_invitations").select("id,role,created_at,expires_at,revoked_at,used_at,used_by").eq("project_id",this.snapshot!.projectId).order("created_at",{ascending:false}).limit(50))) || [];
+  }
+  async createInvitation(role: string) {
+    const data=await unwrap<{id:string;token:string;expires_at:string} | null>(client!.rpc("create_account_invitation",{p_project_id:this.snapshot!.projectId,p_role:role}));
+    if(!data)throw new Error("Invitation indisponible.");
+    return data;
+  }
+  async revokeInvitation(id: string) {
+    await unwrap(client!.rpc("revoke_account_invitation",{p_id:id}));
+  }
   async createProject() {
     if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour créer un projet.");
     return await unwrap(client!.rpc("create_mixed_use_project")) as string;
@@ -210,23 +221,24 @@ export async function restoreWorkspace(): Promise<CloudWorkspace | null> {
   localStorage.setItem(identityKey,JSON.stringify(user));
   return new CloudWorkspace(user);
 }
-export async function login(email: string,password: string,name?: string) {
+export async function login(identifier: string,password: string) {
   if (!client) throw new Error("Supabase n'est pas encore configuré.");
-  if (name !== undefined) {
-    const {data,error}=await client.auth.signUp({email,password,options:{data:{display_name:name}}});
-    if(error) throw error;
-    if(!data.session) return null; // Email confirmation is required.
-  } else {
-    const {error}=await client.auth.signInWithPassword({email,password});
-    if(error) throw error;
-  }
+  const value=identifier.trim().toLowerCase();
+  const email=value.includes("@")?value:value+"@users.pistache.invalid";
+  const {error}=await client.auth.signInWithPassword({email,password});
+  if(error) throw error;
   client.auth.startAutoRefresh();
   return restoreWorkspace();
 }
-export async function resendConfirmation(email: string) {
-  if (!client) throw new Error("Supabase n'est pas encore configuré.");
-  const { error } = await client.auth.resend({ type: "signup", email });
-  if (error) throw error;
+export async function acceptInvitation(token: string,username: string,password: string) {
+  if(!client)throw new Error("Supabase n'est pas encore configuré.");
+  const {data,error}=await client.functions.invoke("accept-invitation",{body:{token,username,password}});
+  if(error) {
+    let message="Création impossible. Vérifiez le lien ou contactez l’admin.";
+    try { const body=await error.context?.json();if(body?.error)message=body.error; } catch {}
+    throw new Error(message);
+  }
+  if(!data?.created)throw new Error(data?.error || "Création impossible.");
 }
 export async function logout() {
   if(client) {

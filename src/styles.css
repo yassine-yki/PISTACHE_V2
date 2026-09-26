@@ -744,3 +744,17 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
   .plan-stage .zoom-controls .zoom-slider { grid-row:1; }
   .plan-stage .zoom-controls #fitPlan { grid-row:2; }
 }
+.task-visibility-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.task-inline-label { flex:1; min-width:160px; font-weight:600; }
+.task-on-off { display:flex; gap:12px; margin:0; padding:8px 12px; border:1px solid var(--line); border-radius:7px; }
+.task-on-off label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+.task-on-off input { width:auto; accent-color:var(--green); }
+.task-off-people { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; padding:10px; border:1px solid var(--line); border-radius:7px; }
+.task-off-people legend { font-size:13px; font-weight:650; padding:0 4px; }
+.task-person-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:6px; padding:7px 9px; cursor:pointer; font-size:13px; }
+.task-person-chip:has(input:checked) { background:var(--surface-soft); border-color:var(--green); }
+.task-save-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.task-management-form > [role="status"]:empty { display:none; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.invitation-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--line); font-size:13px; flex-wrap:wrap; }
+#invitationLink { width:100%; min-width:0; }

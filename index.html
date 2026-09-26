@@ -12,24 +12,15 @@
     <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
       <div class="project-dialog-header"><span class="eyebrow">Projet MUC</span><h2 id="loginTitle" tabindex="-1">Retrouvez votre chantier.</h2><p id="loginDescription">Connectez-vous pour reprendre vos tâches et vos avancements.</p></div>
       <form id="loginForm" class="access-form">
-        <label class="field" id="loginNameField" hidden><span>Nom affiché</span><input id="loginName" autocomplete="name"></label><label class="field"><span>Adresse e-mail</span><input id="loginEmail" type="email" autocomplete="username" required></label>
+        <label class="field"><span id="loginIdentifierLabel">Nom d’utilisateur ou e-mail existant</span><input id="loginEmail" type="text" autocomplete="username" required maxlength="254" autocapitalize="none" spellcheck="false"></label>
         <label class="field"><span>Mot de passe</span><input id="loginPassword" type="password" autocomplete="current-password" minlength="8" maxlength="200" required></label>
         <p class="form-message error" id="loginError" role="alert" hidden></p>
         <button class="button primary" id="loginSubmit" type="submit">Se connecter</button>
-        <button class="text-button" id="toggleRegister" type="button">Créer un compte intervenant</button>
 
         <button class="button secondary" id="continueAsGuest" type="button" aria-describedby="guestModeDescription">Continuer sans se connecter</button>
-        <p id="guestModeDescription">Vos avancements restent dans ce navigateur. Ils ne sont pas partagés avec votre équipe.</p>
+        <p id="guestModeDescription">Consultation en lecture seule. Connectez-vous avec un compte autorisé pour modifier les avancements.</p>
       </form>
-      <section id="verifyAccount" class="access-form" hidden aria-labelledby="loginTitle">
-        <p class="registration-success" role="status">Votre demande d’inscription a été prise en compte.</p>
-        <p>Pour activer votre compte, ouvrez le lien de confirmation envoyé à <strong id="verificationEmail"></strong>.</p>
-        <p class="access-hint">Aucun message reçu ? Vérifiez les courriers indésirables et votre adresse, puis demandez un nouvel envoi. Si le problème persiste, contactez l’administrateur pour vérifier l’envoi des e-mails.</p>
-        <p id="verificationMessage" class="form-message" role="status" hidden></p>
-        <button id="resendConfirmation" type="button" class="button secondary">Renvoyer l’e-mail de confirmation</button>
-        <button id="backToLogin" type="button" class="button primary">J’ai confirmé mon adresse · Me connecter</button>
-        <button id="changeRegistrationEmail" type="button" class="text-button">Corriger mon adresse e-mail</button>
-      </section>
+
     </dialog>
     <dialog class="project-dialog" id="profileDialog" aria-labelledby="profileTitle">
       <div class="project-dialog-header dialog-heading"><div><span class="eyebrow">Compte personnel</span><h2 id="profileTitle">Mon profil</h2></div><button type="button" class="button secondary" id="closeProfile">Fermer</button></div>
@@ -177,12 +168,12 @@
               </select>
             </label>
             <label class="field">
-              <span>Explication</span>
+              <span id="correctionNoteLabel">Explication</span>
               <textarea id="correctionNote" rows="2" placeholder="Décrire précisément la correction..."></textarea>
             </label>
             <p class="form-message error" id="correctionError" hidden></p>
             <div class="correction-actions">
-              <button class="button" id="authorizeCorrection" type="button">Autoriser la correction</button>
+              <button class="button" id="authorizeCorrection" type="button">Valider la correction</button>
               <button class="button secondary" id="cancelCorrection" type="button">Annuler</button>
             </div>
           </div>
@@ -216,25 +207,12 @@
             <span>Blocage ou observation</span>
             <textarea id="noteInput" rows="3" placeholder="Ex. attente de validation, manque de matériau..."></textarea>
           </label>
-
-          <details class="planning-details">
-            <summary>Planification facultative</summary>
-            <div class="date-grid">
-              <label class="field">
-                <span>Début prévu</span>
-                <input type="date" id="startDateInput" />
-              </label>
-              <label class="field">
-                <span>Fin prévue</span>
-                <input type="date" id="endDateInput" />
-              </label>
-            </div>
-          </details>
         </section>
       </aside>
     </main>
 <section id="adminTeam" class="admin-page" hidden>
   <div class="page-heading"><h2>Équipe et affectations</h2><p>Une personne peut intervenir sur plusieurs blocs, à des étages différents.</p></div>
+  <section class="access-form"><h3>Inviter une personne</h3><p>Un lien par personne, utilisable une seule fois pendant 48 heures.</p><label class="field">Rôle<select id="invitationRole"><option value="worker">Intervenant</option><option value="viewer">Lecture seule</option></select></label><button type="button" class="button primary" id="createInvitation">Créer un lien d’invitation</button><div id="invitationResult" hidden><label class="field">Lien à transmettre<input id="invitationLink" readonly></label><button type="button" class="button secondary" id="copyInvitation">Copier le lien</button></div><p id="invitationMessage" role="status"></p><div id="invitationList"></div></section>
   <form id="assignmentForm" class="access-form"><h3>Affecter des blocs par étage</h3><fieldset id="assignmentBlocks"><legend>Étages et blocs</legend></fieldset><p class="access-hint">Toutes les tâches existantes des blocs cochés seront affectées à la personne choisie. Les affectations précédentes de ces blocs seront remplacées ; les autres blocs restent inchangés.</p>
     <label class="field">Intervenant<select id="assignmentPerson"></select></label>
     <button class="button primary" type="submit">Enregistrer l'affectation</button><p id="assignmentMessage" role="status" aria-live="polite"></p>

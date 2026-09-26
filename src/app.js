@@ -3,7 +3,7 @@ import { cleanDxfText, roomNumberFromText } from "./dxf-identification.js";
 import { createProjectRepository } from "./repositories/index.js";
 import { ROOMS_BY_FLOOR } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
-import { cloudConfigured, login, logout, restoreWorkspace, resendConfirmation } from "./cloud/workspace.js";
+import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
 
 
@@ -20,9 +20,12 @@ let currentUser = null;
 let accessReady = false;
 let saving = false;
 let adminPage = "dashboard";
-let registrationMode = false;
+let invitationToken=new URLSearchParams(location.hash.slice(1)).get("invite") || "";
+if(invitationToken) history.replaceState(null,"",location.pathname+location.search);
+let registrationMode = Boolean(invitationToken);
 
 function persistProject(key, correction = null, previousRecord = null) {
+  if(localMode || !currentUser || currentUser.role==="viewer") return Promise.resolve();
   if (!projectRepository && !cloud) return Promise.resolve();
   if(localMode) { if(!previousRecord?.draft && previousRecord) state.records[key].draftBefore={...previousRecord};state.records[key].draftJustified=Boolean(correction)||(state.records[key].draft&&state.records[key].draftJustified);state.records[key].draft=true; }
   const record = { ...state.records[key] };
@@ -100,8 +103,6 @@ const elements = {
   progressRange: document.querySelector("#progressRange"),
   blockedInput: document.querySelector("#blockedInput"),
   noteInput: document.querySelector("#noteInput"),
-  startDateInput: document.querySelector("#startDateInput"),
-  endDateInput: document.querySelector("#endDateInput"),
   zoomRange: document.querySelector("#zoomRange"),
   zoomValue: document.querySelector("#zoomValue"),
   projectDialog: document.querySelector("#projectDialog"),
@@ -452,7 +453,7 @@ function roomAccessible(number) {
 }
 
 function canEditSelectedRoom() {
-  if(localMode)return true;
+  if(localMode || !currentUser || currentUser.role==="viewer")return false;
   return Boolean(cloud?.snapshot && editable(cloud.snapshot,currentUser?.id,
     state.selectedRoom+":"+state.selectedZone+":"+state.selectedTask,Boolean(state.correctionAuthorization)));
 }
@@ -625,9 +626,9 @@ function renderEditor() {
   elements.progressRange.value = record.progress;
   elements.blockedInput.checked = record.blocked;
   elements.noteInput.value = record.note;
-  elements.startDateInput.value = record.startDate;
-  elements.endDateInput.value = record.endDate;
   const correctionAuthorized = Boolean(state.correctionAuthorization);
+  document.querySelector("#correctionNoteLabel").textContent=elements.correctionReason.value==="input-error" ? "Explication (facultative)" : "Explication (obligatoire)";
+  elements.correctionNote.required=elements.correctionReason.value!=="input-error";
   const locked = !canEditSelectedRoom() || saving;
   elements.taskLock.hidden = !locked;
   elements.correctionTrigger.hidden = (!canEditSelectedRoom() && currentUser?.role !== "admin") || record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
@@ -646,8 +647,6 @@ function renderEditor() {
   elements.percentInput.disabled = locked;
   elements.blockedInput.disabled = locked;
   elements.noteInput.disabled = locked;
-  elements.startDateInput.disabled = locked;
-  elements.endDateInput.disabled = locked;
   document.querySelectorAll("[data-progress]").forEach((button) => { button.disabled = locked; });
 }
 
@@ -798,12 +797,14 @@ elements.correctionTrigger.addEventListener("click", () => {
   elements.correctionError.hidden = true;
   renderEditor();
 });
+elements.correctionReason.addEventListener("change", renderEditor);
+
 elements.authorizeCorrection.addEventListener("click", () => {
   if (!canEditSelectedRoom() && currentUser?.role !== "admin") return;
   const reason = elements.correctionReason.value;
   const note = elements.correctionNote.value.trim();
-  if (!reason || !note) {
-    elements.correctionError.textContent = "Choisissez un motif et décrivez la correction.";
+  if (!reason || (reason !== "input-error" && !note)) {
+    elements.correctionError.textContent = "Choisissez un motif. Une explication est obligatoire pour un élément oublié ou ajouté.";
     elements.correctionError.hidden = false;
     return;
   }
@@ -826,8 +827,6 @@ elements.progressRange.addEventListener("change", (event) => {
 elements.percentInput.addEventListener("change", (event) => updateProgress(event.target.value));
 elements.blockedInput.addEventListener("change", (event) => updateRecord({ blocked: event.target.checked }));
 elements.noteInput.addEventListener("change", (event) => updateRecord({ note: event.target.value.trim() }));
-elements.startDateInput.addEventListener("change", (event) => updateRecord({ startDate: event.target.value }));
-elements.endDateInput.addEventListener("change", (event) => updateRecord({ endDate: event.target.value }));
 document.querySelector("#zoomIn").addEventListener("click", () => setZoom(state.zoom + 25));
 document.querySelector("#zoomOut").addEventListener("click", () => setZoom(state.zoom - 25));
 document.querySelector("#fitPlan").addEventListener("click", fitPlan);
@@ -1067,7 +1066,7 @@ elements.projectDialog.addEventListener("cancel", (event) => {
 
 function renderAccessShell() {
   const admin = currentUser?.role === "admin";
-  document.body.dataset.role = localMode ? "admin" : !accessReady ? "signed-out" : currentUser?.role || "signed-out";
+  document.body.dataset.role = localMode ? "viewer" : !accessReady ? "signed-out" : currentUser?.role || "signed-out";
   document.querySelector("#mainWorkspace").hidden = !accessReady || (!localMode && admin && adminPage !== "dashboard");
   document.querySelector("#adminNavigation").hidden = !accessReady || !admin || localMode;
   document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
@@ -1076,8 +1075,8 @@ function renderAccessShell() {
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
   document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
   document.querySelector("#syncButton").hidden = !cloud;
-  document.querySelector("#draftActions").hidden=!accessReady || currentUser?.role==="viewer";
-  document.querySelector("#sessionRole").textContent = localMode ? "Version locale" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
+  document.querySelector("#draftActions").hidden=!accessReady || localMode || currentUser?.role==="viewer";
+  document.querySelector("#sessionRole").textContent = localMode ? "Visiteur — lecture seule" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
   document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
   const workerRooms=document.querySelector("#workerRooms");
   workerRooms.hidden=localMode || admin || !accessReady;
@@ -1176,11 +1175,12 @@ async function renderAdminPage() {
       const people=cloud.snapshot.members.filter(m=>m.role!=='admin');
       const controls='<div class="task-group-controls"><label><input type="checkbox" data-group-hidden> Masquer tout le groupe pour le projet</label><details><summary>Masquer le groupe pour certaines personnes</summary>'+people.map(m=>'<label class="task-member-option"><input type="checkbox" data-group-user="'+m.user_id+'"> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="button" class="button primary" data-save-group>Enregistrer le groupe</button><p role="status" data-group-status></p></div>';
       return '<details class="management-group"><summary><strong>'+escapeSvgText(title)+'</strong><span>'+types.length+' tâches</span></summary>'+controls+types.map(type=>
-        '<details class="management-task"><summary><span data-task-heading>'+escapeSvgText(type.label)+'</span><small data-task-visibility></small></summary>'+'<form class="access-form task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><small>'+escapeSvgText(type.zone==='bathroom'?'Salle de bain':type.zone==='bedroom'?'Chambre':'Loggia')+'</small><label class="field">Intitulé<input name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"></label><label><input type="checkbox" name="hidden" '+(type.hidden?'checked':'')+'> Masquer pour tout le projet (sauf admins)</label><details><summary>Masquer pour certaines personnes</summary>'+cloud.snapshot.members.filter(m=>m.role!=='admin').map(m=>'<label class="task-member-option"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+((type.hidden_user_ids || []).includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="submit" class="button primary">Enregistrer</button><p role="status"></p></form>'+'</details>'
+        '<div class="management-task"><form class="task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><div class="task-visibility-row"><input class="task-inline-label" aria-label="Intitulé de la tâche" name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"><fieldset class="task-on-off"><legend class="sr-only">Visibilité de la tâche</legend><label><input type="radio" name="visibility" value="on" '+(!type.hidden?'checked':'')+'> ON</label><label><input type="radio" name="visibility" value="off" '+(type.hidden?'checked':'')+'> OFF</label></fieldset><input type="checkbox" name="hidden" hidden '+(type.hidden?'checked':'')+'></div><fieldset class="task-off-people"><legend>OFF pour :</legend>'+people.map(m=>'<label class="task-person-chip"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+((type.hidden_user_ids || []).includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+(people.length?'':'<span class="access-hint">Aucun intervenant ou visiteur dans le projet.</span>')+'</fieldset><div class="task-save-row"><small data-task-visibility></small><button type="submit" class="button secondary">Enregistrer</button></div><p role="status"></p></form></div>'
       ).join('')+'</details>';
     }).join('');
     list.querySelectorAll('.management-group').forEach(updateManagementGroup);
   } else if(adminPage==="team") {
+    void renderInvitations();
     const snapshot=cloud.snapshot;
     const people=await cloud.people().catch(()=>snapshot.members.map(member=>({id:member.user_id,name:member.name})));
     const known=new Map(snapshot.members.map(member=>[member.user_id,member]));
@@ -1197,15 +1197,16 @@ async function renderAdminPage() {
       return '<article class="team-member" data-user-id="'+person.id+'"><div><h3>'+escapeSvgText(person.name)+'</h3><p>'+escapeSvgText(statusText)+'</p><small>'+escapeSvgText(person.id)+'</small></div><label class="field compact-field"><span>Rôle</span><select data-member-role><option value="">À définir</option><option value="worker" '+(role==="worker"?"selected":"")+'>Intervenant</option><option value="viewer" '+(role==="viewer"?"selected":"")+'>Lecture seule</option><option value="admin" '+(role==="admin"?"selected":"")+'>Administrateur</option></select></label><label class="field compact-field"><span>Accès</span><select data-member-status '+(!member?"disabled":"")+'><option value="active" '+(status==="active"?"selected":"")+'>Actif</option><option value="inactive" '+(status==="inactive"?"selected":"")+'>Désactivé</option></select></label></article>';
     }).join("") || '<p class="empty-state">Aucun compte créé pour le moment.</p>';
     const scope=await cloud.assignmentScope();
-    const activeFloors=scope.floors.filter(f=>!f.archived_at);
+    const activeFloors=scope.floors.filter(f=>!f.archived_at).sort((a,b)=>a.code.localeCompare(b.code,"fr",{numeric:true}));
+    const responsibleWorkers=new Map(snapshot.members.filter(m=>m.status==="active" && m.role==="worker").map(m=>[m.user_id,m]));
     document.querySelector("#assignmentBlocks").innerHTML='<legend>Étages et blocs</legend>'+activeFloors.map(f=>
-      '<details class="assignment-floor"><summary>'+escapeSvgText(f.label)+'</summary><label class="block-assignment"><input type="checkbox" name="assignmentFloor" value="'+f.id+'"><span>Tout cet étage</span></label>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).map(b=>{
+      '<details class="assignment-floor"><summary>'+escapeSvgText(f.label)+'</summary><label class="block-assignment"><input type="checkbox" name="assignmentFloor" value="'+f.id+'"><span>Tout cet étage</span></label>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).sort((a,b)=>a.code.localeCompare(b.code,"fr",{numeric:true})).map(b=>{
         const roomIds=new Set(scope.rooms.filter(r=>r.block_id===b.id&&!r.archived_at).map(r=>r.id));
         const taskIds=new Set(scope.tasks.filter(t=>roomIds.has(t.room_id)&&!t.archived_at).map(t=>t.id));
-        const people=[...new Set(scope.assignments.filter(a=>!a.ended_at&&taskIds.has(a.room_task_id)).map(a=>snapshot.members.find(m=>m.user_id===a.assignee_id)?.name||"Intervenant"))];
+        const people=[...new Set(scope.assignments.filter(a=>!a.ended_at&&taskIds.has(a.room_task_id)&&responsibleWorkers.has(a.assignee_id)).map(a=>responsibleWorkers.get(a.assignee_id).name))];
         return '<label class="block-assignment"><input type="checkbox" name="assignmentBlock" value="'+b.id+'" '+(!taskIds.size?'disabled':'')+'><span>Bloc '+escapeSvgText(b.label)+'<small>'+escapeSvgText(people.join(', ')||'Non affecté')+' · '+taskIds.size+' tâches</small></span></label>';
       }).join('')+'</details>').join('');
-    document.querySelector("#assignmentPerson").innerHTML='<option value="">Retirer les affectations</option>'+snapshot.members.filter(m=>m.status==="active"&&m.role!=="viewer").map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join('');
+    document.querySelector("#assignmentPerson").innerHTML='<option value="">Retirer les affectations</option>'+[...responsibleWorkers.values()].map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join('');
   } else if(adminPage==="history") {
     const history=await cloud.history();
     document.querySelector("#activityList").innerHTML=history.map(item=>{
@@ -1282,62 +1283,41 @@ document.querySelector("#signInButton").onclick=async()=>{
   location.reload();
 };
 document.querySelector("#loginDialog").addEventListener("cancel",event=>event.preventDefault());
-function setRegistrationMode(register) {
-  registrationMode=register;
-  document.querySelector("#loginForm").hidden=false;
-  document.querySelector("#verifyAccount").hidden=true;
+function setRegistrationMode() {
+  registrationMode=Boolean(invitationToken);
   document.querySelector("#loginError").hidden=true;
-  document.querySelector("#loginTitle").textContent=register?"Créez votre compte.":"Retrouvez votre chantier.";
-  document.querySelector("#loginDescription").textContent=register?"Inscrivez-vous pour rejoindre votre équipe et suivre votre chantier.":"Connectez-vous pour reprendre vos tâches et vos avancements.";
-  document.querySelector("#loginNameField").hidden=!registrationMode;
+  document.querySelector("#loginTitle").textContent=registrationMode?"Créez votre compte invité.":"Retrouvez votre chantier.";
+  document.querySelector("#loginDescription").textContent=registrationMode?"Choisissez votre nom d’utilisateur et votre mot de passe. Aucun e-mail requis.":"Connectez-vous pour reprendre vos tâches et vos avancements.";
+  document.querySelector("#loginIdentifierLabel").textContent=registrationMode?"Nom d’utilisateur":"Nom d’utilisateur ou e-mail existant";
   document.querySelector("#loginSubmit").textContent=registrationMode?"Créer mon compte":"Se connecter";
-  document.querySelector("#toggleRegister").textContent=registrationMode?"J'ai déjà un compte":"Créer un compte";
   document.querySelector("#loginPassword").autocomplete=registrationMode?"new-password":"current-password";
+  document.querySelector("#continueAsGuest").hidden=registrationMode;
+  document.querySelector("#guestModeDescription").hidden=registrationMode;
 }
-let confirmationEmail="";
-let resendAvailableAt=0;
-document.querySelector("#toggleRegister").onclick=()=>setRegistrationMode(!registrationMode);
-document.querySelector("#backToLogin").onclick=()=>{setRegistrationMode(false);document.querySelector("#loginPassword").focus();};
-document.querySelector("#changeRegistrationEmail").onclick=()=>{setRegistrationMode(true);document.querySelector("#loginEmail").focus();};
-document.querySelector("#resendConfirmation").onclick=async()=>{
-  const button=document.querySelector("#resendConfirmation"), message=document.querySelector("#verificationMessage");
-  message.hidden=false;message.classList.remove("error");
-  if(Date.now()<resendAvailableAt){message.textContent="Patientez une minute entre deux demandes d’envoi.";return;}
-  button.disabled=true;
-  const email=confirmationEmail;
-  try {
-    await resendConfirmation(email);
-    resendAvailableAt=Date.now()+60000;
-    if(email===confirmationEmail) message.textContent="Nouvel envoi demandé. Consultez votre boîte de réception et vos courriers indésirables.";
-  } catch(error) {
-    if(email===confirmationEmail){message.textContent="Envoi impossible : "+error.message;message.classList.add("error");}
-  } finally {button.disabled=false;}
-};
 document.querySelector("#loginForm").onsubmit=async(event)=>{
   event.preventDefault();const button=document.querySelector("#loginSubmit");button.disabled=true;
-  const register=registrationMode;
-  const email=document.querySelector("#loginEmail").value.trim();
-  document.querySelector("#toggleRegister").disabled=true;
+  const identifier=document.querySelector("#loginEmail").value.trim();
+  const password=document.querySelector("#loginPassword").value;
   document.querySelector("#loginError").hidden=true;
-  button.textContent=register?"Création en cours…":"Connexion en cours…";
-  try{
-    const workspace=await login(email,document.querySelector("#loginPassword").value,
-      register?document.querySelector("#loginName").value:undefined);
-    if(workspace)await beginCloud(workspace);
-    else if(register) {
-      confirmationEmail=email;
+  button.textContent=registrationMode?"Création en cours…":"Connexion en cours…";
+  try {
+    if(registrationMode) {
+      await acceptInvitation(invitationToken,identifier,password);
+      invitationToken="";setRegistrationMode();
+      document.querySelector("#loginTitle").textContent="Compte créé. Connectez-vous.";
       document.querySelector("#loginPassword").value="";
-      document.querySelector("#loginForm").hidden=true;
-      document.querySelector("#verifyAccount").hidden=false;
-      document.querySelector("#verificationEmail").textContent=email;
-      document.querySelector("#verificationMessage").hidden=true;
-      document.querySelector("#loginTitle").textContent="Confirmez votre adresse e-mail.";
-      document.querySelector("#loginDescription").textContent="Dernière étape pour accéder à votre chantier.";
-      document.querySelector("#loginTitle").focus();
-    } else {throw new Error("La connexion n’a pas pu être ouverte. Réessayez.");}
+      sessionStorage.removeItem(guestModeKey);
+      return;
+    }
+    sessionStorage.removeItem(guestModeKey);
+    const workspace=await login(identifier,password);
+    if(!workspace)throw new Error("Connexion impossible.");
+    if(localMode){location.reload();return;}
+    await beginCloud(workspace);
   }catch(error){document.querySelector("#loginError").textContent=error.message;document.querySelector("#loginError").hidden=false;}
-  finally{button.disabled=false;button.textContent=registrationMode?"Créer mon compte":"Se connecter";document.querySelector("#toggleRegister").disabled=false;}
+  finally{button.disabled=false;button.textContent=registrationMode?"Créer mon compte":"Se connecter";}
 };
+
 document.querySelector("#syncButton").onclick=()=>{document.querySelector("#syncDialog").showModal();void renderSync();};
 document.querySelector("#closeSync").onclick=()=>document.querySelector("#syncDialog").close();
 document.querySelector("#retrySync").onclick=()=>void syncCloud();
@@ -1353,7 +1333,8 @@ setInterval(()=>{if(document.visibilityState==="visible")void syncCloud();},3000
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void syncCloud();});
 async function initializeAccess() {
   renderAccessShell();
-  if(localMode){currentUser={id:"local",role:"admin"};await openProject("mixed-use");return;}
+  if(invitationToken){showLogin();return;}
+  if(localMode){currentUser={id:"local",role:"viewer"};await openProject("mixed-use");return;}
   try{const workspace=await restoreWorkspace();if(workspace)await beginCloud(workspace);else showLogin();}
   catch(error){showLogin(error.message);}
 }
@@ -1370,6 +1351,7 @@ compactLayout.addEventListener("change",updateFilterLayout);
 updateFilterLayout();
 
 document.querySelector("#confirmProgress").onclick=async()=>{
+  if(localMode || !currentUser || currentUser.role==="viewer") return;
   await saveQueue;
   const button=document.querySelector("#confirmProgress");
   const count=localMode?Object.values(state.records).filter(r=>r.draft).length:(await cloud.engine.operations(cloud.snapshot.projectId)).filter(o=>o.state==="draft").length;
@@ -1392,6 +1374,7 @@ document.querySelector("#confirmProgress").onclick=async()=>{
 };
 
 document.querySelector("#cancelProgress").onclick=async()=>{
+  if(localMode || !currentUser || currentUser.role==="viewer") return;
   await saveQueue;
   if(!confirm("Annuler les brouillons non validés de ce projet sur cet appareil ? Les saisies déjà validées seront conservées."))return;
   saving=true;
@@ -1421,7 +1404,7 @@ document.querySelector("#taskManagementList").addEventListener("submit",async ev
   try{
     await cloud.manageTaskType(form.dataset.typeId,form.elements.label.value,form.elements.hidden.checked,[...form.querySelectorAll('[name="hiddenUser"]:checked')].map(input=>input.value));
     status.textContent="Modifications enregistrées.";
-    form.closest(".management-task").querySelector("[data-task-heading]").textContent=form.elements.label.value;
+
     updateManagementGroup(form.closest(".management-group"));render();
   }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
 });
@@ -1431,10 +1414,11 @@ function updateManagementGroup(group) {
   const set=(control,values)=>{control.checked=values.every(Boolean);control.indeterminate=values.some(Boolean)&&!control.checked;};
   set(group.querySelector('[data-group-hidden]'),forms.map(f=>f.elements.hidden.checked));
   group.querySelectorAll('[data-group-user]').forEach(control=>set(control,forms.map(f=>[...f.querySelectorAll('[name="hiddenUser"]')].find(input=>input.value===control.dataset.groupUser)?.checked)));
-  forms.forEach(f=>{f.closest('.management-task').querySelector('[data-task-visibility]').textContent=f.elements.hidden.checked?'Masquée pour le projet':f.querySelector('[name="hiddenUser"]:checked')?'Masquée pour certaines personnes':'Visible';});
+  forms.forEach(f=>{f.querySelector('[name="visibility"][value="on"]').checked=!f.elements.hidden.checked;f.querySelector('[name="visibility"][value="off"]').checked=f.elements.hidden.checked;f.closest('.management-task').querySelector('[data-task-visibility]').textContent=f.elements.hidden.checked?'Masquée pour le projet':f.querySelector('[name="hiddenUser"]:checked')?'Masquée pour certaines personnes':'Visible';});
 }
 document.querySelector('#taskManagementList').addEventListener('change',event=>{
   const group=event.target.closest('.management-group');if(!group)return;
+  if(event.target.matches('[name="visibility"]')) event.target.closest('form').elements.hidden.checked=event.target.value==='off';
   if(event.target.matches('[data-group-hidden],[data-group-user]')) {
     group.querySelectorAll('.task-management-form').forEach(form=>{
       const input=event.target.matches('[data-group-hidden]')?form.elements.hidden:[...form.querySelectorAll('[name="hiddenUser"]')].find(input=>input.value===event.target.dataset.groupUser);
@@ -1458,10 +1442,42 @@ document.querySelector('#taskManagementList').addEventListener('click',async eve
     for(const form of group.querySelectorAll('.task-management-form')) {
       status.textContent='Enregistrement du groupe…';
       await cloud.manageTaskType(form.dataset.typeId,form.elements.label.value,form.elements.hidden.checked,[...form.querySelectorAll('[name="hiddenUser"]:checked')].map(i=>i.value));
-      form.closest('.management-task').querySelector('[data-task-heading]').textContent=form.elements.label.value;
+
       saved++;
     }
     status.textContent=saved+' tâches enregistrées.';render();
   }catch(error){status.textContent=saved+' tâches enregistrées. '+error.message+' Vous pouvez réessayer pour terminer.';}
   finally{controls.forEach(c=>c.disabled=false);updateManagementGroup(group);}
 });
+
+async function renderInvitations() {
+  const list=document.querySelector('#invitationList');
+  try {
+    const rows=await cloud.invitations();
+    list.innerHTML=rows.map(inv=>{
+      const status=inv.used_at?'Utilisé':inv.revoked_at?'Révoqué':Date.parse(inv.expires_at)<=Date.now()?'Expiré':'Disponible';
+      return '<div class="invitation-row"><span>'+escapeSvgText(inv.role==='viewer'?'Lecture seule':'Intervenant')+' · '+status+' · '+new Date(inv.created_at).toLocaleString('fr-FR')+'</span>'+(status==='Disponible'?'<button type="button" class="button secondary" data-revoke-invitation="'+inv.id+'">Révoquer</button>':'')+'</div>';
+    }).join('') || '<p>Aucune invitation.</p>';
+  }catch {list.textContent='Les invitations nécessitent la mise à jour Supabase.';}
+}
+document.querySelector('#createInvitation').onclick=async()=>{
+  const button=document.querySelector('#createInvitation'),message=document.querySelector('#invitationMessage');
+  button.disabled=true;message.textContent='Création du lien…';
+  try {
+    const inv=await cloud.createInvitation(document.querySelector('#invitationRole').value);
+    document.querySelector('#invitationLink').value=location.origin+location.pathname+'#invite='+inv.token;
+    document.querySelector('#invitationResult').hidden=false;
+    message.textContent='Lien créé. Copiez-le maintenant : il ne sera plus affiché après fermeture de la page.';
+    await renderInvitations();
+  }catch(error){message.textContent=error.message;}finally{button.disabled=false;}
+};
+document.querySelector('#copyInvitation').onclick=async()=>{
+  try{await navigator.clipboard.writeText(document.querySelector('#invitationLink').value);document.querySelector('#invitationMessage').textContent='Lien copié.';}
+  catch{document.querySelector('#invitationLink').select();document.querySelector('#invitationMessage').textContent='Copiez le lien sélectionné.';}
+};
+document.querySelector('#invitationList').onclick=async event=>{
+  const button=event.target.closest('[data-revoke-invitation]');if(!button)return;
+  button.disabled=true;
+  try{await cloud.revokeInvitation(button.dataset.revokeInvitation);await renderInvitations();document.querySelector('#invitationMessage').textContent='Invitation révoquée.';}
+  catch(error){button.disabled=false;document.querySelector('#invitationMessage').textContent=error.message;}
+};

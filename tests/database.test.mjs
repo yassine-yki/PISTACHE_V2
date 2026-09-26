@@ -354,4 +354,64 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     assert.ok(body.includes('task_hidden'));
   });
 
+ await t.test('upper floor typology migration preserves progress and seeds correct future rooms',async()=>{
+  await db.exec('reset role');
+  const before=await query('select id,progress,version from public.room_tasks order by id');
+  await db.exec(await readFile(new URL('../supabase/migrations/0008_room_typologies.sql',import.meta.url),'utf8'));
+  assert.deepEqual(await query('select id,progress,version from public.room_tasks order by id'),before);
+  assert.equal((await first("select count(*)::int as n from public.rooms r join public.floors f on f.id=r.floor_id where f.code in ('r4','r5') and r.number in ('414','514') and r.room_type <> 'executive'")).n,0);
+  await login(admin);
+  const p=(await first('select public.create_mixed_use_project() as id')).id;
+  assert.equal((await first("select room_type from public.rooms where project_id=$1 and number='525'",[p])).room_type,'junior');
+  assert.equal((await first("select room_type from public.rooms where project_id=$1 and number='414'",[p])).room_type,'executive');
+ });
+
+ await t.test('input errors accept no explanation while scope changes still require one',async()=>{
+  await db.exec('reset role');
+  await db.exec(await readFile(new URL('../supabase/migrations/0009_optional_input_error_note.sql',import.meta.url),'utf8'));
+  await login(admin);
+  const task=await first("select t.id,t.version from public.room_tasks t join public.project_members m on m.project_id=t.project_id where m.user_id=$1 and m.role='admin' and m.status='active' and t.archived_at is null limit 1",[admin]);
+  const v=Number(task.version);
+  assert.equal((await submit(operation(task.id,null,v,payload(10,{correction_reason:'scope-change',correction_note:''})))).error_code,'invalid_payload');
+  assert.equal((await submit(operation(task.id,null,v,payload(10,{correction_reason:'input-error'})))).status,'accepted');
+  assert.equal((await submit(operation(task.id,null,v+1,payload(5,{correction_reason:'input-error',correction_note:''})))).status,'accepted');
+ });
+
+ await t.test('single-use invitation gates account creation and keeps role server-controlled',async()=>{
+  await db.exec('reset role');
+  await db.exec("alter table auth.users add column raw_app_meta_data jsonb not null default '{}'; create role service_role nologin;");
+  await db.exec(await readFile(new URL('../supabase/migrations/0010_invitation_accounts.sql',import.meta.url),'utf8'));
+  await login(admin);
+  const p=(await first("select public.create_project('Invites') as id")).id;
+  const inv=(await first('select public.create_account_invitation($1,$2) as data',[p,'viewer'])).data;
+  await reject('select public.create_account_invitation($1,$2)',[p,'admin'],/invalid_role/);
+  await login(worker);
+  await reject('select public.create_account_invitation($1,$2)',[p,'worker'],/project_admin_required/);
+  assert.equal((await query('select id from public.account_invitations')).length,0);
+  await db.exec('reset role');
+  const user=randomUUID();
+  await reject('insert into auth.users(id) values ($1)',[randomUUID()],/invitation_invalid/);
+  const hash=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[inv.token])).h;
+  await query('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[user,JSON.stringify({invitation_hash:hash,username:'new.person'})]);
+  assert.equal((await first('select role from public.project_members where project_id=$1 and user_id=$2',[p,user])).role,'viewer');
+  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:hash,username:'another.person'})],/invitation_invalid/);
+  await login(admin);
+
+  const expiry=(await first('select public.create_account_invitation($1,$2) as data',[p,'worker'])).data;
+  const duplicate=(await first('select public.create_account_invitation($1,$2) as data',[p,'worker'])).data;
+  await db.exec('reset role');
+  const expiryHash=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[expiry.token])).h;
+  await query("update public.account_invitations set expires_at=now()-interval '1 second' where id=$1",[expiry.id]);
+  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:expiryHash,username:'expired.person'})],/invitation_invalid/);
+  const duplicateHash=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[duplicate.token])).h;
+  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:duplicateHash,username:'new.person'})],/duplicate key/);
+  assert.equal((await first('select used_at from public.account_invitations where id=$1',[duplicate.id])).used_at,null);
+  await login(admin);
+  const revoke=(await first('select public.create_account_invitation($1,$2) as data',[p,'worker'])).data;
+  await query('select public.revoke_account_invitation($1)',[revoke.id]);
+  await db.exec('reset role');
+  const hash2=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[revoke.token])).h;
+  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:hash2,username:'revoked.person'})],/invitation_invalid/);
+ });
+
 });

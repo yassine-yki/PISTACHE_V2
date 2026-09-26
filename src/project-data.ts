@@ -43,7 +43,8 @@ const detectedFloorRooms = (floorId: string, numbers: number[]): RoomDefinition[
     floorId,
     number,
     blockId: null,
-    roomType: "standard",
+    roomType: [414, 514].includes(number) ? "executive"
+      : [403, 406, 409, 410, 412, 417, 418, 503, 506, 509, 510, 512, 517, 518, 525].includes(number) ? "junior" : "standard",
   }));
 
 export const ROOMS_BY_FLOOR: Record<string, RoomDefinition[]> = {
