@@ -277,4 +277,59 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     assert.equal((await send(40,{correction_reason:'input-error',correction_note:'Mesure vérifiée sur place'})).status,'accepted');
   });
 
+  await t.test('admin edits unassigned tasks across floors without taking the worker assignment', async()=>{
+    await db.exec('reset role');
+    await db.exec(await readFile(new URL('../supabase/migrations/0005_admin_progress_access.sql',import.meta.url),'utf8'));
+    await login(admin);
+    const p=(await first("select public.create_project('Admin access') as id")).id;
+    await query('select public.set_project_member($1,$2,$3,$4)',[p,worker,'worker','active']);
+    await query("insert into public.task_types(project_id,code,label,zone) values ($1,'paint','Peinture','bedroom')",[p]);
+    for(const code of ['r2','r5']) {
+      const f=(await first('insert into public.floors(project_id,code,label) values ($1,$2,$2) returning id',[p,code])).id;
+      const r=(await first("insert into public.rooms(project_id,floor_id,number) values ($1,$2,'501') returning id",[p,f])).id;
+      const taskId=(await first('select id from public.room_tasks where room_id=$1',[r])).id;
+      assert.equal((await submit(operation(taskId,null,1,payload(20)))).status,'accepted');
+      const a=(await first('select public.assign_task($1,$2) as id',[taskId,worker])).id;
+      assert.equal((await submit(operation(taskId,null,3,payload(60)))).status,'accepted');
+      assert.equal((await first('select assignee_id from public.task_assignments where id=$1',[a])).assignee_id,worker);
+      await login(worker);
+      assert.equal((await submit(operation(taskId,null,4,payload(70)))).error_code,'assignment_changed');
+      await login(admin);
+    }
+  });
+
+  await t.test('task visibility hides data and rejects edits while preserving progress and admin access',async()=>{
+    await db.exec('reset role');
+    await db.exec(await readFile(new URL('../supabase/migrations/0006_task_visibility.sql',import.meta.url),'utf8'));
+    await login(admin);
+    const p=(await first("select public.create_project('Visibility') as id")).id;
+    for(const [u,r] of [[worker,'worker'],[viewer,'viewer']]) await query('select public.set_project_member($1,$2,$3,$4)',[p,u,r,'active']);
+    const f=(await first("insert into public.floors(project_id,code,label) values ($1,'r2','R2') returning id",[p])).id;
+    await query("insert into public.rooms(project_id,floor_id,number) values ($1,$2,'201')",[p,f]);
+    const type=(await first("insert into public.task_types(project_id,code,label,zone) values ($1,'paint','Paint','bedroom') returning id",[p])).id;
+    const task=(await first('select id from public.room_tasks where project_id=$1',[p])).id;
+    const a=(await first('select public.assign_task($1,$2) as id',[task,worker])).id;
+    await login(worker);
+    assert.equal((await submit(operation(task,a,2,payload(35)))).status,'accepted');
+    await reject('select public.manage_task_type($1,$2,$3,$4)',[type,'x',true,[]],/project_admin_required/);
+    await login(admin);
+    await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',false,[worker]]);
+    await login(worker);
+    assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,0);
+    assert.equal((await query('select id from public.progress_updates where room_task_id=$1',[task])).length,0);
+    assert.equal((await submit(operation(task,a,3,payload(45)))).error_code,'task_hidden');
+    await login(viewer);
+    assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,1);
+    await login(admin);
+    await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',true,[]]);
+    assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,1);
+    await login(viewer);
+    assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,0);
+    await login(admin);
+    await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',false,[]]);
+    await login(worker);
+    assert.equal((await first('select progress from public.room_tasks where id=$1',[task])).progress,35);
+    assert.equal((await first('select label from public.task_types where id=$1',[type])).label,'New label');
+  });
+
 });

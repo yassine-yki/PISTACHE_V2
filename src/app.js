@@ -483,7 +483,14 @@ function roomMatchesFilters(number) {
   return roomAccessible(number) && roomMatchesType(number) && roomMatchesBlock(number);
 }
 
-function currentTasks() { return tasksByZone[state.selectedZone]; }
+function currentTasks() {
+  const base=tasksByZone[state.selectedZone];
+  if(localMode || !cloud?.snapshot?.taskTypes) return base;
+  return base.flatMap(task=>{
+    const type=cloud.snapshot.taskTypes.find(t=>t.zone===state.selectedZone && t.code===task.id);
+    return type ? [{...task,label:type.label}] : [];
+  });
+}
 
 function normalizeTaskSelection() {
   const tasks = currentTasks();
@@ -536,7 +543,7 @@ function renderTaskSelect() {
     groups.get(group).push(task);
   }
   elements.taskSelect.innerHTML = tasks.length ? [...groups.entries()].map(([group, groupTasks]) =>
-    `<optgroup label="${group}">${groupTasks.map((task) => `<option value="${task.id}">${task.label}</option>`).join("")}</optgroup>`).join("")
+    `<optgroup label="${group}">${groupTasks.map((task) => `<option value="${task.id}">${escapeSvgText(task.label)}</option>`).join("")}</optgroup>`).join("")
     : '<option value="">Tâches à définir</option>';
   elements.taskSelect.disabled = !tasks.length;
   elements.taskSelect.value = state.selectedTask;
@@ -598,7 +605,7 @@ function renderTaskList() {
         const active = task.id === state.selectedTask ? " active" : "";
         const complete = record.progress >= 100 ? " complete" : "";
         return `<button class="task-row${active}" type="button" data-task="${task.id}">
-          <span class="task-name">${task.label}</span><span class="task-percent">${record.progress} %</span>
+          <span class="task-name">${escapeSvgText(task.label)}</span><span class="task-percent">${record.progress} %</span>
           ${record.blocked ? '<span class="blocked-tag">Bloquée</span>' : ""}
           <span class="task-track"><i class="${complete}" style="width:${record.progress}%"></i></span>
         </button>`;
@@ -1021,6 +1028,7 @@ function renderAccessShell() {
   document.querySelector("#mainWorkspace").hidden = !accessReady || (!localMode && admin && adminPage !== "dashboard");
   document.querySelector("#adminNavigation").hidden = !accessReady || !admin || localMode;
   document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
+  document.querySelector("#adminTasks").hidden = !admin || adminPage !== "tasks" || localMode;
   document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
   document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
@@ -1110,7 +1118,11 @@ async function syncCloud() {
 }
 async function renderAdminPage() {
   if(!cloud || currentUser?.role!=="admin") return;
-  if(adminPage==="team") {
+  if(adminPage==="tasks") {
+    document.querySelector("#taskManagementList").innerHTML=(cloud.snapshot.taskTypes || []).map(type=>
+      '<form class="access-form task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><small>'+escapeSvgText(type.zone==='bathroom'?'Salle de bain':type.zone==='bedroom'?'Chambre':'Loggia')+'</small><label class="field">Intitulé<input name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"></label><label><input type="checkbox" name="hidden" '+(type.hidden?'checked':'')+'> Masquer pour tout le projet (sauf admins)</label><details><summary>Masquer pour certaines personnes</summary>'+cloud.snapshot.members.filter(m=>m.role!=='admin').map(m=>'<label class="task-member-option"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+((type.hidden_user_ids || []).includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="submit" class="button primary">Enregistrer</button><p role="status"></p></form>'
+    ).join('');
+  } else if(adminPage==="team") {
     const snapshot=cloud.snapshot;
     const people=await cloud.people().catch(()=>snapshot.members.map(member=>({id:member.user_id,name:member.name})));
     const known=new Map(snapshot.members.map(member=>[member.user_id,member]));
@@ -1147,16 +1159,18 @@ async function renderAdminPage() {
 }
 document.querySelector("#assignmentForm").onsubmit=async(event)=>{
   event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
+  const label=button.textContent;button.textContent="Enregistrement…";
+  document.querySelector("#assignmentMessage").textContent="Enregistrement des affectations en cours…";
   try {
     const blockIds=[...document.querySelectorAll('input[name="assignmentBlock"]:checked')].map(input=>input.value);
     if(!blockIds.length) throw new Error("Sélectionnez au moins un bloc dans un étage.");
     const count=await cloud.assignBlocks(blockIds,document.querySelector("#assignmentPerson").value||null);
     await renderAdminPage();
-    const message=count+" affectations de tâches mises à jour.";
-    document.querySelector("#teamMessage").textContent=message;
+    const message=count ? count+" affectations de tâches enregistrées." : "Affectations déjà à jour pour les blocs sélectionnés.";
+    document.querySelector("#assignmentMessage").textContent=message;
     document.querySelector("#saveStatus").textContent=message;
-    document.querySelector("#teamMessage").classList.add("success");
-  } catch(error){document.querySelector("#teamMessage").classList.remove("success");document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
+    document.querySelector("#assignmentMessage").classList.add("success");
+  } catch(error){document.querySelector("#assignmentMessage").classList.remove("success");document.querySelector("#assignmentMessage").textContent=error.message;}finally{button.disabled=false;button.textContent=label;}
 };
 document.querySelector("#memberDirectory").onchange=async(event)=>{
   const control=event.target.closest("[data-member-role],[data-member-status]");
@@ -1336,3 +1350,14 @@ document.querySelector("#cancelProgress").onclick=async()=>{
   }catch(error){document.querySelector("#saveStatus").textContent=error.message;}
   finally{saving=false;document.querySelector("#confirmProgress").disabled=false;document.querySelector("#cancelProgress").disabled=false;renderEditor();}
 };
+
+document.querySelector("#taskManagementList").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const form=event.target.closest(".task-management-form");if(!form)return;
+  const button=form.querySelector("button");const status=form.querySelector('[role="status"]');
+  button.disabled=true;status.textContent="Enregistrement…";
+  try{
+    await cloud.manageTaskType(form.dataset.typeId,form.elements.label.value,form.elements.hidden.checked,[...form.querySelectorAll('[name="hiddenUser"]:checked')].map(input=>input.value));
+    status.textContent="Modifications enregistrées.";render();
+  }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+});

@@ -91,7 +91,7 @@ export class CloudWorkspace {
         record:{confirmedDay:t.confirmed_day,confirmedProgress:t.progress,lockedProgress:t.locked_progress??t.progress,progress:t.progress,blocked:t.blocked,note:t.note,startDate:t.start_date||"",endDate:t.end_date||""} }];
     });
     // RLS and the RPC remain authoritative; this snapshot is only a UI/cache view.
-    const snapshot: Snapshot = {projectId,name:project.name,userId:this.user.id,role:own.role,tasks:cloudTasks,
+    const snapshot: Snapshot = {projectId,name:project.name,userId:this.user.id,role:own.role,tasks:cloudTasks,taskTypes:types,
       assignments:assignments.filter(a=>!a.ended_at),members,cachedAt:new Date().toISOString()};
     await this.store.saveSnapshot(snapshot);
     this.snapshot=snapshot;
@@ -160,6 +160,11 @@ export class CloudWorkspace {
   async member(userId: string, role: string, status = "active") {
     if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour gérer les membres.");
     await unwrap(client!.rpc("set_project_member",{p_project_id:this.snapshot!.projectId,p_user_id:userId,p_role:role,p_status:status}));
+    await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
+  }
+  async manageTaskType(id: string, label: string, hidden: boolean, hiddenUsers: string[]) {
+    if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour gérer les tâches.");
+    await unwrap(client!.rpc("manage_task_type",{p_id:id,p_label:label,p_hidden:hidden,p_hidden_user_ids:hiddenUsers}));
     await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
   }
   async history() {

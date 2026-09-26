@@ -16,7 +16,7 @@ test("only the assigned room task can be edited, even within the same chamber",(
   assert.equal(editable(s,"alice","201:bathroom:paint"),false);
   assert.equal(editable(s,"bob","201:bathroom:paint"),false);
   s.role="viewer";assert.equal(editable(s,"alice","201:bedroom:paint"),false);
-  s.role="admin";assert.equal(editable(s,"alice","201:bathroom:paint"),false);
+  s.role="admin";assert.equal(editable(s,"alice","201:bathroom:paint"),true);
   assert.equal(editable(s,"alice","201:bathroom:paint",true),true);
 });
 test("offline edits survive reopening and send a versioned dependency chain",async()=>{

@@ -7,6 +7,7 @@ export type Assignment = { id: string; room_task_id: string; assignee_id: string
 export type Member = { user_id: string; role: Role; status: string; name: string };
 export type Snapshot = {
   projectId: string; name: string; userId: string; role: Role;
+  taskTypes?: {id:string;code:string;zone:string;label:string;hidden?:boolean;hidden_user_ids?:string[]}[];
   tasks: CloudTask[]; assignments: Assignment[]; members: Member[]; cachedAt: string;
 };
 export type Payload = {
@@ -23,7 +24,7 @@ export type Receipt = { status: "accepted" | "conflict" | "rejected"; result_ver
 export function editable(snapshot: Snapshot, userId: string, key: string, correction = false): boolean {
   const task = snapshot.tasks.find(item => item.key === key);
   if (!task?.active || snapshot.userId !== userId || snapshot.role === "viewer") return false;
-  if (correction && snapshot.role === "admin") return true;
+  if (snapshot.role === "admin") return true;
   return snapshot.assignments.some(a => a.room_task_id === task.id && a.assignee_id === userId && !a.ended_at);
 }
 export function recordFromPayload(payload: Payload): ProgressRecord {
