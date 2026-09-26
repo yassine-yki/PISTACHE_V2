@@ -154,8 +154,20 @@ export type ProgressRecord = {
   lastCorrectionReason?: "input-error" | "scope-change";
   lastCorrectionNote?: string;
   correctedAt?: string;
+  confirmedDay?: string;
+  confirmedProgress?: number;
+  lockedProgress?: number;
+  draft?: boolean;
+  draftJustified?: boolean;
+  draftBefore?: ProgressRecord;
 };
 
+export function projectDay(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca",year:"numeric",month:"2-digit",day:"2-digit"}).format(now);
+}
+export function lockedProgress(record: ProgressRecord, day = projectDay()): number {
+  return record.confirmedDay && record.confirmedDay < day ? (record.confirmedProgress ?? record.progress) : (record.lockedProgress ?? 0);
+}
 export function progressChangeAllowed(currentProgress: number, nextProgress: number, correctionAuthorized: boolean): boolean {
   if (currentProgress >= 100 && !correctionAuthorized) return false;
   if (nextProgress < currentProgress && !correctionAuthorized) return false;

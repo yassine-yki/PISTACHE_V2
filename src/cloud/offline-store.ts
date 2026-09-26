@@ -45,6 +45,14 @@ export class OfflineStore {
       tx.onabort = () => reject(tx.error || new Error("Sauvegarde locale interrompue."));
     });
   }
+  async putMany(operations: Operation[]): Promise<void> {
+    const db=await this.database;
+    return new Promise((resolve,reject)=>{
+      const tx=db.transaction("operations","readwrite");
+      for(const operation of operations) tx.objectStore("operations").put(operation);
+      tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+    });
+  }
   async acknowledge(operation: Operation, snapshot: Snapshot): Promise<void> {
     const db = await this.database;
     return new Promise((resolve, reject) => {

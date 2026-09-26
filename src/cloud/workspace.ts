@@ -80,7 +80,7 @@ export class CloudWorkspace {
       if (!room || !type || floor?.code !== CURRENT_FLOOR) return [];
       return [{ id:t.id,key:room.number+":"+type.zone+":"+type.code,version:Number(t.version),
         active:![project.archived_at,t.archived_at,room.archived_at,type.archived_at,floor.archived_at,block?.archived_at].some(Boolean),
-        record:{progress:t.progress,blocked:t.blocked,note:t.note,startDate:t.start_date||"",endDate:t.end_date||""} }];
+        record:{confirmedDay:t.confirmed_day,confirmedProgress:t.progress,lockedProgress:t.locked_progress??t.progress,progress:t.progress,blocked:t.blocked,note:t.note,startDate:t.start_date||"",endDate:t.end_date||""} }];
     });
     // RLS and the RPC remain authoritative; this snapshot is only a UI/cache view.
     const snapshot: Snapshot = {projectId,name:project.name,userId:this.user.id,role:own.role,tasks:cloudTasks,
@@ -108,9 +108,17 @@ export class CloudWorkspace {
     if (!this.snapshot) throw new Error("Aucun projet ouvert.");
     const version = this.snapshot.tasks.find(t => t.key === key)?.version;
     return this.exclusive(async () => {
-      await this.engine.enqueue(this.snapshot!.projectId,key,record,correction,previousRecord,version);
+      await this.engine.enqueue(this.snapshot!.projectId,key,record,correction,previousRecord,version,true);
       return this.project();
     });
+  }
+  async cancelDrafts() {
+    if(!this.snapshot) throw new Error("Aucun projet ouvert.");
+    return this.exclusive(()=>this.engine.cancelDrafts(this.snapshot!.projectId));
+  }
+  async confirmDrafts() {
+    if(!this.snapshot) throw new Error("Aucun projet ouvert.");
+    return this.exclusive(()=>this.engine.confirmDrafts(this.snapshot!.projectId));
   }
   async sync() {
     if (!this.snapshot) return;
@@ -140,6 +148,18 @@ export class CloudWorkspace {
   }
   async history() {
     return await unwrap(client!.from("progress_updates").select("*").eq("project_id",this.snapshot!.projectId).order("created_at",{ascending:false}).limit(80)) as any[];
+  }
+  async assignmentScope() {
+    const projectId=this.snapshot!.projectId;
+    const [floors,blocks,rooms,tasks,assignments]=await Promise.all(
+      ["floors","blocks","rooms","room_tasks","task_assignments"].map(table=>allRows(table,projectId)));
+    return {floors,blocks,rooms,tasks,assignments};
+  }
+  async assignBlocks(blockIds: string[], userId: string | null) {
+    if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour modifier les affectations.");
+    const count=await unwrap(client!.rpc("assign_blocks",{p_project_id:this.snapshot!.projectId,p_block_ids:blockIds,p_assignee_id:userId}));
+    await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
+    return count;
   }
   async createProject() {
     if (!navigator.onLine) throw new Error("Une connexion est nécessaire pour créer un projet.");
@@ -175,6 +195,11 @@ export async function login(email: string,password: string,name?: string) {
   }
   client.auth.startAutoRefresh();
   return restoreWorkspace();
+}
+export async function resendConfirmation(email: string) {
+  if (!client) throw new Error("Supabase n'est pas encore configuré.");
+  const { error } = await client.auth.resend({ type: "signup", email });
+  if (error) throw error;
 }
 export async function logout() {
   if(client) {

@@ -41,6 +41,7 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     await query('insert into auth.users(id) values ($1)', [admin]);
     await db.exec(await readFile(new URL('../supabase/migrations/0001_initial_schema.sql', import.meta.url), 'utf8'));
     await db.exec(await readFile(new URL('../supabase/migrations/0002_create_mixed_use.sql', import.meta.url), 'utf8'));
+    await db.exec(await readFile(new URL('../supabase/migrations/0003_assign_blocks.sql', import.meta.url), 'utf8'));
     for (const id of [worker, viewer, outsider]) await query('insert into auth.users(id) values ($1)', [id]);
     assert.equal((await query('select * from public.profiles')).length, 4);
     const tables = await query("select relname, relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'");
@@ -222,6 +223,58 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     assert.equal((await submit(operation(firstTask.id,firstAssignment,2,payload(30)))).status,'accepted');
     assert.equal((await submit(operation(sameRoom.id,secondAssignment,2,payload(40)))).error_code,'assignment_changed');
     assert.equal((await first('select progress from public.room_tasks where id=$1',[sameRoom.id])).progress,0);
+  });
+
+  await t.test('block assignments span floors, preserve other blocks and enforce permissions atomically', async () => {
+    await login(admin);
+    const p=(await first("select public.create_project('Multi-floor') as id")).id;
+    await query('select public.set_project_member($1,$2,$3,$4)',[p,worker,'worker','active']);
+    const blocks=[];
+    for(const code of ['r1','r2','r3']) {
+      const f=(await first('insert into public.floors(project_id,code,label) values ($1,$2,$2) returning id',[p,code])).id;
+      const b=(await first("insert into public.blocks(project_id,floor_id,code,label) values ($1,$2,'A','A') returning id",[p,f])).id;
+      blocks.push(b);
+      await query("insert into public.rooms(project_id,floor_id,block_id,number) values ($1,$2,$3,'101')",[p,f,b]);
+    }
+    await query("insert into public.task_types(project_id,code,label,zone) values ($1,'paint','Peinture','bedroom')",[p]);
+    assert.equal((await first('select public.assign_blocks($1,$2,$3) as count',[p,blocks.slice(0,2),worker])).count,2);
+    assert.equal((await first('select public.assign_blocks($1,$2,$3) as count',[p,blocks.slice(0,2),worker])).count,0);
+    assert.equal((await first('select count(*)::int as n from public.task_assignments where project_id=$1 and ended_at is null',[p])).n,2);
+    await reject('select public.assign_blocks($1,$2,$3)',[p,[blocks[2],randomUUID()],admin],/invalid_block/);
+    assert.equal((await first('select count(*)::int as n from public.task_assignments where project_id=$1 and ended_at is null',[p])).n,2);
+    await reject('select public.assign_blocks($1,$2,$3)',[p,[],worker],/blocks_required/);
+    await login(worker);
+    await reject('select public.assign_blocks($1,$2,$3)',[p,blocks,worker],/project_admin_required/);
+    await login(admin);
+    assert.equal((await first('select public.assign_blocks($1,$2,$3) as count',[p,[blocks[0]],null])).count,1);
+    assert.equal((await first('select count(*)::int as n from public.task_assignments where project_id=$1 and ended_at is null',[p])).n,1);
+  });
+
+  await t.test('confirmed daily progress permits same-day decreases and requires worker justification on later days',async()=>{
+    await db.exec('reset role');
+    await db.exec(await readFile(new URL('../supabase/migrations/0004_confirmed_progress.sql',import.meta.url),'utf8'));
+    await login(admin);
+    const p=(await first("select public.create_project('Daily') as id")).id;
+    await query('select public.set_project_member($1,$2,$3,$4)',[p,worker,'worker','active']);
+    const f=(await first("insert into public.floors(project_id,code,label) values ($1,'r2','R+2') returning id",[p])).id;
+    await query("insert into public.rooms(project_id,floor_id,number) values ($1,$2,'201')",[p,f]);
+    await query("insert into public.task_types(project_id,code,label,zone) values ($1,'paint','Peinture','bedroom')",[p]);
+    const taskId=(await first('select id from public.room_tasks where project_id=$1',[p])).id;
+    const assignment=(await first('select public.assign_task($1,$2) as id',[taskId,worker])).id;
+    await login(worker);
+    const send=async(progress,extra={})=>{
+      const version=Number((await first('select version from public.room_tasks where id=$1',[taskId])).version);
+      return submit(operation(taskId,assignment,version,payload(progress,extra)));
+    };
+    assert.equal((await send(80)).status,'accepted');
+    assert.equal((await send(50)).status,'accepted');
+    await db.exec('reset role');
+    await query("update public.room_tasks set confirmed_day=(now() at time zone 'Africa/Casablanca')::date-1 where id=$1",[taskId]);
+    await login(worker);
+    assert.equal((await send(40)).error_code,'correction_required');
+    assert.equal((await send(70)).status,'accepted');
+    assert.equal((await send(45)).error_code,'correction_required');
+    assert.equal((await send(40,{correction_reason:'input-error',correction_note:'Mesure vérifiée sur place'})).status,'accepted');
   });
 
 });

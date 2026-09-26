@@ -75,3 +75,11 @@ Le schéma complet est décrit dans [le schéma de base de données](schema-base
 Sur l’écran de connexion, **Continuer sans se connecter** ouvre le suivi local. Les saisies sont conservées dans ce navigateur, séparément des projets partagés. Elles ne sont pas envoyées à Supabase lors d’une connexion ultérieure.
 
 Le choix reste actif lors des actualisations dans cet onglet. Le bouton **Se connecter** permet de revenir aux comptes et projets partagés.
+
+## Brouillons et validation globale
+
+Les saisies connectées sont enregistrées dans IndexedDB, séparément pour chaque compte et projet sur cet appareil. Une actualisation, la synchronisation périodique ou le retour du réseau ne publient pas les brouillons. « Valider mes saisies » confirme les brouillons du projet ouvert sur cet appareil ; les saisies ultérieures restent privées jusqu’à une autre validation. Les changements confirmés sont envoyés à la reconnexion et les conflits restent consultables dans Synchronisation. La validation est globale côté interface ; chaque tâche conserve son contrôle de version et peut être refusée indépendamment.
+
+Appliquer `0004_confirmed_progress.sql` avant de publier cette version. La règle de diminution est vérifiée côté serveur selon le jour civil Africa/Casablanca : les valeurs validées les jours précédents constituent le seuil protégé. Une hausse aujourd’hui ne supprime pas ce seuil. Une diminution sous ce seuil demande un motif et une explication, y compris pour l’intervenant affecté. Le jour serveur de réception fait foi pour les validations hors connexion.
+
+Sans connexion à un compte (version locale), la validation reste sur cet appareil et ne partage rien. Effacer les données du navigateur efface aussi les brouillons non partagés.

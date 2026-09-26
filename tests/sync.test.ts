@@ -78,3 +78,37 @@ test("an edit from a stale tab cannot silently use the newer cached version",asy
   await assert.rejects(engine.enqueue("p","201:bedroom:paint",record(30),null,record(0),2),/autre onglet/);
   assert.equal((await engine.operations("p")).length,0);await store.close();
 });
+
+test("private drafts survive reload, collapse edits and cannot flush before global confirmation",async()=>{
+  const namespace=crypto.randomUUID();let store=new OfflineStore(namespace);await store.saveSnapshot(snapshot());
+  let calls=0;
+  const submit=async(o:any)=>{calls++;return {status:"accepted" as const,result_version:o.baseVersion+1,error_code:null};};
+  let engine=new SyncEngine(store,"alice","device",submit);
+  const first=await engine.enqueue("p","201:bedroom:paint",record(80),null,undefined,undefined,true);
+  await engine.enqueue("p","201:bedroom:paint",record(20),null,undefined,undefined,true);
+  assert.equal((await engine.operations("p")).length,1);
+  assert.equal((await engine.operations("p"))[0].id,first.id);
+  await engine.flush("p");assert.equal(calls,0);
+  await store.close();store=new OfflineStore(namespace);engine=new SyncEngine(store,"alice","device",submit);
+  assert.equal((await engine.records("p"))["201:bedroom:paint"].progress,20);
+  await engine.flush("p");assert.equal(calls,0);
+  assert.equal(await engine.confirmDrafts("p"),1);
+  await engine.enqueue("p","201:bedroom:paint",record(50),null,undefined,undefined,true);
+  await engine.flush("p");assert.equal(calls,1);
+  assert.equal((await engine.operations("p"))[0].state,"draft");
+  assert.equal((await engine.records("p"))["201:bedroom:paint"].progress,50);
+  await store.close();
+});
+
+test("cancel removes only private drafts and preserves confirmed pending submissions",async()=>{
+  const store=new OfflineStore(crypto.randomUUID());await store.saveSnapshot(snapshot());
+  const engine=new SyncEngine(store,"alice","device",async o=>({status:"accepted",result_version:o.baseVersion+1,error_code:null}));
+  await engine.enqueue("p","201:bedroom:paint",record(20),null,undefined,undefined,true);
+  await engine.confirmDrafts("p");
+  await engine.enqueue("p","201:bedroom:paint",record(70),null,undefined,undefined,true);
+  await engine.cancelDrafts("p");
+  assert.equal((await engine.operations("p")).length,1);
+  assert.equal((await engine.operations("p"))[0].state,"pending");
+  assert.equal((await engine.records("p"))["201:bedroom:paint"].progress,20);
+  await store.close();
+});

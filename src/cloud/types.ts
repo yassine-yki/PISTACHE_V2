@@ -16,7 +16,7 @@ export type Payload = {
 export type Operation = {
   id: string; projectId: string; userId: string; deviceId: string; taskId: string; key: string;
   assignmentId: string | null; baseVersion: number; dependsOn: string | null;
-  payload: Payload; createdAt: string; state: "pending" | "conflict" | "rejected" | "discarded";
+  payload: Payload; createdAt: string; state: "draft" | "pending" | "conflict" | "rejected" | "discarded";
   error?: string;
 };
 export type Receipt = { status: "accepted" | "conflict" | "rejected"; result_version: number | null; error_code: string | null };

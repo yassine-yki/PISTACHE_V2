@@ -41,6 +41,12 @@ function parseRecord(value: unknown): ProgressRecord {
     }
   }
   return {
+    ...(typeof value.confirmedDay === "string" ? {confirmedDay:value.confirmedDay} : {}),
+    ...(typeof value.confirmedProgress === "number" ? {confirmedProgress:value.confirmedProgress} : {}),
+    ...(typeof value.lockedProgress === "number" ? {lockedProgress:value.lockedProgress} : {}),
+    ...(isObject(value.draftBefore) ? {draftBefore:parseRecord({...value.draftBefore,draftBefore:undefined})} : {}),
+    ...(value.draftJustified===true ? {draftJustified:true} : {}),
+    ...(value.draft===true ? {draft:true} : {}),
     progress: value.progress,
     blocked: value.blocked,
     note: (value.note as string | undefined) || "",

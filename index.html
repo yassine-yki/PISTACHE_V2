@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Suivi visuel des travaux de second oeuvre de l'etage R+2." />
-    <title>Pistache V2 — Suivi du chantier</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Projet MUC — Suivi du chantier</title>
+    <link rel="icon" type="image/png" href="/muc-building.png" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
-      <div class="project-dialog-header"><span class="eyebrow">Pistache V2 · Mixed Use</span><h2 id="loginTitle">Retrouvez votre chantier.</h2><p>Connectez-vous pour reprendre vos tâches et vos avancements.</p></div>
+      <div class="project-dialog-header"><span class="eyebrow">Projet MUC</span><h2 id="loginTitle" tabindex="-1">Retrouvez votre chantier.</h2><p id="loginDescription">Connectez-vous pour reprendre vos tâches et vos avancements.</p></div>
       <form id="loginForm" class="access-form">
         <label class="field" id="loginNameField" hidden><span>Nom affiché</span><input id="loginName" autocomplete="name"></label><label class="field"><span>Adresse e-mail</span><input id="loginEmail" type="email" autocomplete="username" required></label>
         <label class="field"><span>Mot de passe</span><input id="loginPassword" type="password" autocomplete="current-password" minlength="8" maxlength="200" required></label>
@@ -21,6 +21,15 @@
         <button class="button secondary" id="continueAsGuest" type="button" aria-describedby="guestModeDescription">Continuer sans se connecter</button>
         <p id="guestModeDescription">Vos avancements restent dans ce navigateur. Ils ne sont pas partagés avec votre équipe.</p>
       </form>
+      <section id="verifyAccount" class="access-form" hidden aria-labelledby="loginTitle">
+        <p class="registration-success" role="status">Votre demande d’inscription a été prise en compte.</p>
+        <p>Pour activer votre compte, ouvrez le lien de confirmation envoyé à <strong id="verificationEmail"></strong>.</p>
+        <p class="access-hint">Aucun message reçu ? Vérifiez les courriers indésirables et votre adresse, puis demandez un nouvel envoi. Si le problème persiste, contactez l’administrateur pour vérifier l’envoi des e-mails.</p>
+        <p id="verificationMessage" class="form-message" role="status" hidden></p>
+        <button id="resendConfirmation" type="button" class="button secondary">Renvoyer l’e-mail de confirmation</button>
+        <button id="backToLogin" type="button" class="button primary">J’ai confirmé mon adresse · Me connecter</button>
+        <button id="changeRegistrationEmail" type="button" class="text-button">Corriger mon adresse e-mail</button>
+      </section>
     </dialog>
     <dialog class="project-dialog" id="profileDialog" aria-labelledby="profileTitle">
       <div class="project-dialog-header dialog-heading"><div><span class="eyebrow">Compte personnel</span><h2 id="profileTitle">Mon profil</h2></div><button type="button" class="button secondary" id="closeProfile">Fermer</button></div>
@@ -40,20 +49,20 @@
 
     <header class="topbar">
       <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true">P</div>
+        <img class="brand-mark" src="/muc-building.png" alt="" width="64" height="54" />
         <div>
-          <h1>Pistache <span class="version-label">V2</span></h1>
-          <p id="projectSubtitle">Aucun projet ouvert</p>
+          <h1>Projet MUC</h1>
+          <p id="projectSubtitle" hidden>Aucun projet ouvert</p>
         </div>
       </div>
       <span class="sr-only" id="importStatus" aria-live="polite"></span>
       <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
     <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="history">Activité</button></nav>
-    <div class="workspace-intro" id="workspaceIntro" hidden><div><span class="eyebrow" id="workspaceEyebrow">Mixed Use / R+2</span><h2 id="workspaceTitle">Mes tâches</h2><p id="workspaceDescription"></p></div><button class="button secondary" type="button" id="refreshData">Actualiser</button></div>
 
     <main class="app-shell" id="mainWorkspace" hidden>
       <section class="workspace" aria-label="Plan interactif">
+        
         <div class="controlbar">
           <label class="control-group floor-control">
             <span class="control-label">Étage</span>
@@ -72,7 +81,7 @@
             </div>
           </div>
 
-          <div class="control-group type-control" aria-label="Type de chambre">
+<details class="secondary-filters" id="secondaryFilters" open><summary>Typologie</summary>          <div class="control-group type-control" aria-label="Type de chambre">
             <span class="control-label">Typologie</span>
             <div class="segmented" id="typeTabs">
               <button class="active" type="button" data-type="all">Toutes</button>
@@ -80,43 +89,46 @@
               <button type="button" data-type="junior">Junior Suite</button>
               <button type="button" data-type="executive">Exécutive</button>
             </div>
+          </div></details>
+<div class="control-group zone-control" aria-label="Zone suivie">
+            <span class="control-label">Zone</span>
+            <div class="segmented" id="globalZoneTabs">
+              <button class="active" type="button" data-zone="bedroom">Chambre</button>
+              <button type="button" data-zone="bathroom">Salle de bain</button>
+            </div>
           </div>
-
           <label class="control-group room-control">
             <span class="control-label">Chambre</span>
             <select id="roomSelect" aria-label="Chambre sélectionnée"></select>
           </label>
 
-          <div class="control-group zone-control" aria-label="Zone suivie">
-            <span class="control-label">Zone</span>
-            <div class="segmented" id="globalZoneTabs">
-              <button class="active" type="button" data-zone="bedroom">Chambre</button>
-              <button type="button" data-zone="loggia">Loggia</button>
-              <button type="button" data-zone="bathroom">Salle de bain</button>
-            </div>
-          </div>
 
-          <label class="control-group task-control">
-            <span class="control-label">Tâche affichée</span>
-            <select id="taskSelect" aria-label="Tâche affichée sur le plan"></select>
-          </label>
 
-          <div class="zoom-controls" aria-label="Zoom du plan">
-            <button id="zoomOut" type="button" title="Réduire le plan" aria-label="Réduire le plan">−</button>
-            <input id="zoomRange" type="range" min="10" max="400" step="10" value="100" aria-label="Niveau de zoom" />
-            <output id="zoomValue">100 %</output>
-            <button id="zoomIn" type="button" title="Agrandir le plan" aria-label="Agrandir le plan">+</button>
-            <button id="fitPlan" class="fit-plan" type="button" title="Afficher le plan entier">Ajuster</button>
-          </div>
+
+
+
         </div>
 
+<div class="plan-taskbar">                    <label class="control-group task-control">
+            <span class="control-label">Tâche affichée</span>
+            <select id="taskSelect" aria-label="Tâche affichée sur le plan"></select>
+          </label></div>
         <div class="summary-strip" id="summaryStrip" aria-live="polite"></div>
         <div id="workerRooms" class="worker-rooms" aria-label="Chambres accessibles" hidden></div>
 
+        <div class="plan-stage">
+<div class="draft-actions" id="draftActions" hidden><button class="button primary" type="button" id="confirmProgress">Valider</button><button class="button secondary" type="button" id="cancelProgress">Annuler</button></div>
         <div class="plan-viewport" id="planViewport">
           <div class="plan-content" id="planContent">
             <div class="plan-empty" id="planEmpty">Importez le plan DXF pour commencer.</div>
             <svg class="dxf-plan" id="dxfPlan" role="img" aria-label="Plan architectural importé depuis le fichier DXF"></svg>
+          </div>
+        </div>
+          <div class="zoom-controls" aria-label="Zoom du plan">
+            <button id="zoomOut" type="button" title="Réduire le plan" aria-label="Réduire le plan">−</button>
+            <details class="zoom-slider"><summary title="Régler le zoom"><output id="zoomValue">100 %</output></summary><div class="zoom-slider-popover"><input id="zoomRange" type="range" min="10" max="400" step="10" value="100" aria-label="Niveau de zoom" /></div></details>
+            <button id="zoomIn" type="button" title="Agrandir le plan" aria-label="Agrandir le plan">+</button>
+            <button id="fitPlan" class="fit-plan" type="button" title="Afficher le plan entier">Ajuster</button>
           </div>
         </div>
       </section>
@@ -132,7 +144,6 @@
 
         <div class="segmented detail-tabs" id="detailZoneTabs" aria-label="Zone de la chambre">
           <button class="active" type="button" data-zone="bedroom">Chambre</button>
-          <button type="button" data-zone="loggia">Loggia</button>
           <button type="button" data-zone="bathroom">Salle de bain</button>
         </div>
 
@@ -152,7 +163,7 @@
             <output class="percent-output" id="percentOutput">0 %</output>
           </div>
 
-          <div class="task-lock" id="taskLock" hidden><strong>Lecture seule</strong><p>Seul l’intervenant affecté peut modifier cette tâche. Une tâche terminée nécessite une correction administrative.</p></div>
+          <div class="task-lock" id="taskLock" hidden><strong>Lecture seule</strong><p>Seul l’intervenant affecté peut modifier cette tâche. Une diminution sous un avancement validé un jour précédent nécessite une justification.</p></div>
 
           <button class="correction-trigger" id="correctionTrigger" type="button" hidden>Signaler une correction</button>
 
@@ -223,10 +234,8 @@
       </aside>
     </main>
 <section id="adminTeam" class="admin-page" hidden>
-  <div class="page-heading"><h2>Équipe et affectations</h2><p>Chaque tâche d'une chambre a un seul intervenant. Le bloc sert à organiser les chambres, il ne donne aucun droit d'écriture.</p></div>
-  <form id="assignmentForm" class="access-form"><h3>Affecter une tâche</h3>
-    <label class="field">Chambre<select id="assignmentRoom"></select></label>
-    <label class="field">Tâche<select id="assignmentTask"></select></label>
+  <div class="page-heading"><h2>Équipe et affectations</h2><p>Une personne peut intervenir sur plusieurs blocs, à des étages différents.</p></div>
+  <form id="assignmentForm" class="access-form"><h3>Affecter des blocs par étage</h3><fieldset id="assignmentBlocks"><legend>Étages et blocs</legend></fieldset><p class="access-hint">Toutes les tâches existantes des blocs cochés seront affectées à la personne choisie. Les affectations précédentes de ces blocs seront remplacées ; les autres blocs restent inchangés.</p>
     <label class="field">Intervenant<select id="assignmentPerson"></select></label>
     <button class="button primary" type="submit">Enregistrer l'affectation</button>
   </form>
@@ -234,7 +243,7 @@
     <label class="field">Identifiant du compte<input id="memberId" required placeholder="Identifiant UUID"></label>
     <label class="field">Rôle<select id="memberRole"><option value="worker">Intervenant</option><option value="viewer">Lecture seule</option><option value="admin">Administrateur</option></select></label>
     <label class="field">Accès<select id="memberStatus"><option value="active">Actif</option><option value="inactive">Désactivé</option></select></label>
-    <button class="button primary" type="submit">Enregistrer le membre</button>
+    <p class="access-hint">Désactiver retire l’accès au projet et clôture les affectations, sans supprimer le compte ni l’historique. Réactiver ne rétablit pas les anciennes affectations.</p><button class="button primary" type="submit">Enregistrer le membre</button>
   </form><div id="teamList" class="team-list"></div><p id="teamMessage" role="status"></p>
 </section>
     <section id="adminActivity" class="admin-page" aria-label="Historique du projet" hidden><div class="page-heading"><span class="eyebrow">Administration du projet</span><h2>Activité du chantier</h2><p>Avancements, corrections et changements d’affectation.</p></div><div id="activityList" class="activity-list"></div></section>

@@ -1,9 +1,9 @@
-import { CURRENT_FLOOR, emptyProject, progressChangeAllowed, taskGroup, tasksByZone } from "./model.js";
+import { CURRENT_FLOOR, emptyProject, projectDay, lockedProgress, taskGroup, tasksByZone } from "./model.js";
 import { cleanDxfText, roomNumberFromText } from "./dxf-identification.js";
 import { createProjectRepository } from "./repositories/index.js";
 import { R2_ROOMS } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
-import { cloudConfigured, login, logout, restoreWorkspace } from "./cloud/workspace.js";
+import { cloudConfigured, login, logout, restoreWorkspace, resendConfirmation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
 
 
@@ -24,13 +24,14 @@ let registrationMode = false;
 
 function persistProject(key, correction = null, previousRecord = null) {
   if (!projectRepository && !cloud) return Promise.resolve();
+  if(localMode) { if(!previousRecord?.draft && previousRecord) state.records[key].draftBefore={...previousRecord};state.records[key].draftJustified=Boolean(correction)||(state.records[key].draft&&state.records[key].draftJustified);state.records[key].draft=true; }
   const record = { ...state.records[key] };
   saving = true;
   document.querySelector("#saveStatus").textContent = "Enregistrement sur cet appareil…";
   saveQueue = saveQueue.then(async () => {
     if (localMode) {
       await projectRepository.save(project);
-      document.querySelector("#saveStatus").textContent="Enregistré dans ce navigateur";
+      document.querySelector("#saveStatus").textContent="Brouillon enregistré sur cet appareil — non partagé";
     } else {
       project=await cloud.enqueue(key,record,correction,previousRecord);
       state.records=project.floors[CURRENT_FLOOR].records;
@@ -383,11 +384,6 @@ function updateRecord(changes) {
   if (!canEditSelectedRoom() || saving) return;
   const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
   const current = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
-  if (current.progress >= 100 && !state.correctionAuthorization) {
-    state.progressRuleMessage = "Cette tâche terminée est verrouillée. Signalez une correction pour la modifier.";
-    renderEditor();
-    return;
-  }
   state.records[key] = { ...current, ...changes };
   void persistProject(key, state.correctionAuthorization, current);
   render();
@@ -398,14 +394,14 @@ function updateProgress(value) {
   const progress = Math.max(0, Math.min(100, Number(value || 0)));
   const key = `${state.selectedRoom}:${state.selectedZone}:${state.selectedTask}`;
   const current = getRecord(state.selectedRoom, state.selectedZone, state.selectedTask);
-  if (!progressChangeAllowed(current.progress, progress, Boolean(state.correctionAuthorization))) {
+  if (progress < lockedProgress(current) && !state.correctionAuthorization) {
     state.progressRuleMessage = current.progress >= 100
-      ? "Cette tâche terminée est verrouillée. Signalez une correction pour la modifier."
-      : "La diminution est interdite sans signalement d'une correction.";
+      ? "Une valeur validée un jour précédent nécessite une justification pour être diminuée."
+      : "Cette diminution passe sous l’avancement validé un jour précédent. Justifiez la correction.";
     renderEditor();
     return;
   }
-  const correction = progress < current.progress ? {
+  const correction = progress < current.progress && state.correctionAuthorization ? {
     lastCorrectionReason: state.correctionAuthorization.reason,
     lastCorrectionNote: state.correctionAuthorization.note,
     correctedAt: new Date().toISOString(),
@@ -547,6 +543,9 @@ function renderRoomHeading() {
 }
 
 function renderTaskList() {
+  // Keep the existing editor and its event listeners when rebuilding task rows.
+  elements.taskList.after(elements.taskEditor);
+  const expandedGroups=new Set([...elements.taskList.querySelectorAll("details[open]")].map(group=>group.dataset.group));
   if (!roomAccessible(state.selectedRoom)) {
     elements.taskList.innerHTML = '<div class="empty-state">Votre administrateur doit vous affecter une tâche pour commencer.</div>';
     elements.taskEditor.hidden = true;
@@ -569,8 +568,8 @@ function renderTaskList() {
   }
   elements.taskSearch.value = state.taskQuery;
   elements.taskList.innerHTML = groups.size ? [...groups.entries()].map(([group, groupTasks]) => `
-    <section class="task-group">
-      <h3>${group}</h3>
+    <details class="task-group" data-group="${group}" ${query || expandedGroups.has(group) || groupTasks.some(task=>task.id===state.selectedTask) ? "open" : ""}>
+      <summary>${group}<span>${groupTasks.length}</span></summary>
       <div class="task-group-items">${groupTasks.map((task) => {
         const record = getRecord(state.selectedRoom, state.selectedZone, task.id);
         const active = task.id === state.selectedTask ? " active" : "";
@@ -581,7 +580,8 @@ function renderTaskList() {
           <span class="task-track"><i class="${complete}" style="width:${record.progress}%"></i></span>
         </button>`;
       }).join("")}</div>
-    </section>`).join("") : '<div class="empty-state">Aucune tâche trouvée.</div>';
+    </details>`).join("") : '<div class="empty-state">Aucune tâche trouvée.</div>';
+  elements.taskList.querySelector(".task-row.active")?.after(elements.taskEditor);
 }
 
 function renderEditor() {
@@ -597,10 +597,10 @@ function renderEditor() {
   elements.startDateInput.value = record.startDate;
   elements.endDateInput.value = record.endDate;
   const correctionAuthorized = Boolean(state.correctionAuthorization);
-  const locked = !canEditSelectedRoom() || saving || (record.progress >= 100 && !correctionAuthorized);
+  const locked = !canEditSelectedRoom() || saving;
   elements.taskLock.hidden = !locked;
-  elements.correctionTrigger.hidden = currentUser?.role !== "admin" || record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
-  elements.correctionPanel.hidden = currentUser?.role !== "admin" || !state.correctionPanelOpen;
+  elements.correctionTrigger.hidden = (!canEditSelectedRoom() && currentUser?.role !== "admin") || record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
+  elements.correctionPanel.hidden = (!canEditSelectedRoom() && currentUser?.role !== "admin") || !state.correctionPanelOpen;
   elements.correctionAuthorized.hidden = !correctionAuthorized;
   elements.correctionAuthorized.textContent = correctionAuthorized
     ? `Correction autorisée : ${state.correctionAuthorization.reason === "input-error" ? "Erreur de saisie" : "Élément oublié ou ajouté"}`
@@ -758,14 +758,14 @@ elements.taskSearch.addEventListener("input", (event) => {
   renderTaskList();
 });
 elements.correctionTrigger.addEventListener("click", () => {
-  if (currentUser?.role !== "admin") return;
+  if (!canEditSelectedRoom() && currentUser?.role !== "admin") return;
   state.correctionPanelOpen = true;
   state.progressRuleMessage = "";
   elements.correctionError.hidden = true;
   renderEditor();
 });
 elements.authorizeCorrection.addEventListener("click", () => {
-  if (currentUser?.role !== "admin") return;
+  if (!canEditSelectedRoom() && currentUser?.role !== "admin") return;
   const reason = elements.correctionReason.value;
   const note = elements.correctionNote.value.trim();
   if (!reason || !note) {
@@ -959,18 +959,14 @@ function renderAccessShell() {
   const admin = currentUser?.role === "admin";
   document.body.dataset.role = localMode ? "admin" : !accessReady ? "signed-out" : currentUser?.role || "signed-out";
   document.querySelector("#mainWorkspace").hidden = !accessReady || (!localMode && admin && adminPage !== "dashboard");
-  document.querySelector("#workspaceIntro").hidden = !accessReady;
   document.querySelector("#adminNavigation").hidden = !accessReady || !admin || localMode;
   document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
   document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
   document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
   document.querySelector("#syncButton").hidden = !cloud;
+  document.querySelector("#draftActions").hidden=!accessReady || currentUser?.role==="viewer";
   document.querySelector("#sessionRole").textContent = localMode ? "Version locale" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
-  document.querySelector("#workspaceTitle").textContent = localMode ? "Suivi local" : admin ? "Le chantier, en clair." : "Mes tâches";
-  document.querySelector("#workspaceDescription").textContent = localMode
-    ? "Mode sans compte : les avancements restent dans ce navigateur et ne sont pas partagés avec votre équipe."
-    : "Une tâche, un intervenant. Les saisies hors connexion restent sur cet appareil jusqu'à synchronisation.";
   document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
   const workerRooms=document.querySelector("#workerRooms");
   workerRooms.hidden=localMode || admin || !accessReady;
@@ -981,6 +977,7 @@ function renderAccessShell() {
 }
 function showLogin(message="") {
   accessReady=false; renderAccessShell();
+  setRegistrationMode(false);
   document.querySelector("#loginError").textContent=message;
   document.querySelector("#loginError").hidden=!message;
   document.querySelector("#loginPassword").value="";
@@ -1017,8 +1014,10 @@ async function renderSync() {
   if(!cloud?.snapshot) return;
   const operations=await cloud.engine.operations(cloud.snapshot.projectId);
   const pending=operations.filter(o=>o.state==="pending").length;
-  const problems=operations.filter(o=>o.state!=="pending");
+  const drafts=operations.filter(o=>o.state==="draft").length;
+  const problems=operations.filter(o=>o.state!=="pending"&&o.state!=="draft");
   document.querySelector("#saveStatus").textContent=problems.length ? problems.length+" modification(s) à examiner"
+    : drafts ? drafts+" brouillon(s) sur cet appareil — non partagés"
     : pending ? pending+" modification(s) en attente de synchronisation"
     : navigator.onLine ? "Synchronisé" : "Hors connexion — copie locale";
   document.querySelector("#syncProblems").innerHTML=problems.map(o=>'<article class="activity-item"><strong>'+escapeSvgText(operationLabel(o))+'</strong><p>Votre saisie : '+o.payload.progress+' % — '+escapeSvgText(syncError(o.error))+'</p><p>'+escapeSvgText(o.payload.note)+'</p><button type="button" class="button secondary" data-discard-task="'+o.taskId+'">Conserver la valeur du serveur</button><p>Pour proposer une correction, conservez la valeur du serveur puis effectuez une nouvelle saisie autorisée.</p></article>').join("");
@@ -1050,11 +1049,16 @@ async function renderAdminPage() {
     const snapshot=cloud.snapshot;
     document.querySelector("#teamList").innerHTML=snapshot.members.map(m=>
       '<article class="team-member"><div><h3>'+escapeSvgText(m.name)+'</h3><p>'+m.role+' — '+m.status+'</p></div></article>').join("");
-    const roomInput=document.querySelector("#assignmentRoom");
-    const previous=roomInput.value;
-    roomInput.innerHTML=rooms.map(r=>'<option value="'+r.number+'">Chambre '+r.number+' — Bloc '+r.blockId+'</option>').join("");
-    if(previous) roomInput.value=previous;
-    renderAssignmentTasks();
+    const scope=await cloud.assignmentScope();
+    const activeFloors=scope.floors.filter(f=>!f.archived_at);
+    document.querySelector("#assignmentBlocks").innerHTML='<legend>Étages et blocs</legend>'+activeFloors.map(f=>
+      '<div class="assignment-floor"><strong>'+escapeSvgText(f.label)+'</strong>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).map(b=>{
+        const roomIds=new Set(scope.rooms.filter(r=>r.block_id===b.id&&!r.archived_at).map(r=>r.id));
+        const taskIds=new Set(scope.tasks.filter(t=>roomIds.has(t.room_id)&&!t.archived_at).map(t=>t.id));
+        const people=[...new Set(scope.assignments.filter(a=>!a.ended_at&&taskIds.has(a.room_task_id)).map(a=>snapshot.members.find(m=>m.user_id===a.assignee_id)?.name||"Intervenant"))];
+        return '<label class="block-assignment"><input type="checkbox" name="assignmentBlock" value="'+b.id+'" '+(!taskIds.size?'disabled':'')+'><span>Bloc '+escapeSvgText(b.label)+'<small>'+escapeSvgText(people.join(', ')||'Non affecté')+' · '+taskIds.size+' tâches</small></span></label>';
+      }).join('')+'</div>').join('');
+    document.querySelector("#assignmentPerson").innerHTML='<option value="">Retirer les affectations</option>'+snapshot.members.filter(m=>m.status==="active"&&m.role!=="viewer").map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join('');
   } else if(adminPage==="history") {
     const history=await cloud.history();
     document.querySelector("#activityList").innerHTML=history.map(item=>{
@@ -1064,27 +1068,15 @@ async function renderAdminPage() {
     }).join("") || '<p class="empty-state">Aucune modification enregistrée.</p>';
   }
 }
-function renderAssignmentTasks() {
-  if(!cloud?.snapshot) return;
-  const room=document.querySelector("#assignmentRoom").value;
-  document.querySelector("#assignmentTask").innerHTML=cloud.snapshot.tasks.filter(t=>t.active && t.key.startsWith(room+":")).map(t=>{
-    const [,zone,code]=t.key.split(":");
-    const label=tasksByZone[zone]?.find(k=>k.id===code)?.label || code;
-    return '<option value="'+t.id+'">'+escapeSvgText(({bedroom:"Chambre",bathroom:"Salle de bain",loggia:"Loggia"})[zone]+" — "+label)+'</option>';
-  }).join("");
-  document.querySelector("#assignmentPerson").innerHTML='<option value="">Non affectée</option>'+cloud.snapshot.members.filter(m=>m.status==="active"&&m.role!=="viewer").map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join("");
-  renderAssignmentPerson();
-}
-function renderAssignmentPerson() {
-  const assignment=cloud.snapshot.assignments.find(a=>a.room_task_id===document.querySelector("#assignmentTask").value);
-  document.querySelector("#assignmentPerson").value=assignment?.assignee_id || "";
-}
-document.querySelector("#assignmentRoom").onchange=renderAssignmentTasks;
-document.querySelector("#assignmentTask").onchange=renderAssignmentPerson;
 document.querySelector("#assignmentForm").onsubmit=async(event)=>{
   event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
-  try {await cloud.assign(document.querySelector("#assignmentTask").value,document.querySelector("#assignmentPerson").value || null);await renderAdminPage();document.querySelector("#teamMessage").textContent="Affectation de cette tâche enregistrée.";}
-  catch(error){document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
+  try {
+    const blockIds=[...document.querySelectorAll('input[name="assignmentBlock"]:checked')].map(input=>input.value);
+    if(!blockIds.length) throw new Error("Sélectionnez au moins un bloc dans un étage.");
+    const count=await cloud.assignBlocks(blockIds,document.querySelector("#assignmentPerson").value||null);
+    await renderAdminPage();
+    document.querySelector("#teamMessage").textContent=count+" affectations de tâches mises à jour.";
+  } catch(error){document.querySelector("#teamMessage").textContent=error.message;}finally{button.disabled=false;}
 };
 document.querySelector("#memberForm").onsubmit=async(event)=>{
   event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
@@ -1120,22 +1112,61 @@ document.querySelector("#signInButton").onclick=async()=>{
   location.reload();
 };
 document.querySelector("#loginDialog").addEventListener("cancel",event=>event.preventDefault());
-document.querySelector("#toggleRegister").onclick=()=>{
-  registrationMode=!registrationMode;
+function setRegistrationMode(register) {
+  registrationMode=register;
+  document.querySelector("#loginForm").hidden=false;
+  document.querySelector("#verifyAccount").hidden=true;
+  document.querySelector("#loginError").hidden=true;
+  document.querySelector("#loginTitle").textContent=register?"Créez votre compte.":"Retrouvez votre chantier.";
+  document.querySelector("#loginDescription").textContent=register?"Inscrivez-vous pour rejoindre votre équipe et suivre votre chantier.":"Connectez-vous pour reprendre vos tâches et vos avancements.";
   document.querySelector("#loginNameField").hidden=!registrationMode;
   document.querySelector("#loginSubmit").textContent=registrationMode?"Créer mon compte":"Se connecter";
   document.querySelector("#toggleRegister").textContent=registrationMode?"J'ai déjà un compte":"Créer un compte";
   document.querySelector("#loginPassword").autocomplete=registrationMode?"new-password":"current-password";
+}
+let confirmationEmail="";
+let resendAvailableAt=0;
+document.querySelector("#toggleRegister").onclick=()=>setRegistrationMode(!registrationMode);
+document.querySelector("#backToLogin").onclick=()=>{setRegistrationMode(false);document.querySelector("#loginPassword").focus();};
+document.querySelector("#changeRegistrationEmail").onclick=()=>{setRegistrationMode(true);document.querySelector("#loginEmail").focus();};
+document.querySelector("#resendConfirmation").onclick=async()=>{
+  const button=document.querySelector("#resendConfirmation"), message=document.querySelector("#verificationMessage");
+  message.hidden=false;message.classList.remove("error");
+  if(Date.now()<resendAvailableAt){message.textContent="Patientez une minute entre deux demandes d’envoi.";return;}
+  button.disabled=true;
+  const email=confirmationEmail;
+  try {
+    await resendConfirmation(email);
+    resendAvailableAt=Date.now()+60000;
+    if(email===confirmationEmail) message.textContent="Nouvel envoi demandé. Consultez votre boîte de réception et vos courriers indésirables.";
+  } catch(error) {
+    if(email===confirmationEmail){message.textContent="Envoi impossible : "+error.message;message.classList.add("error");}
+  } finally {button.disabled=false;}
 };
 document.querySelector("#loginForm").onsubmit=async(event)=>{
   event.preventDefault();const button=document.querySelector("#loginSubmit");button.disabled=true;
+  const register=registrationMode;
+  const email=document.querySelector("#loginEmail").value.trim();
+  document.querySelector("#toggleRegister").disabled=true;
+  document.querySelector("#loginError").hidden=true;
+  button.textContent=register?"Création en cours…":"Connexion en cours…";
   try{
-    const workspace=await login(document.querySelector("#loginEmail").value,document.querySelector("#loginPassword").value,
-      registrationMode?document.querySelector("#loginName").value:undefined);
+    const workspace=await login(email,document.querySelector("#loginPassword").value,
+      register?document.querySelector("#loginName").value:undefined);
     if(workspace)await beginCloud(workspace);
-    else {document.querySelector("#loginError").textContent="Vérifiez votre e-mail pour confirmer votre compte, puis connectez-vous.";document.querySelector("#loginError").hidden=false;}
+    else if(register) {
+      confirmationEmail=email;
+      document.querySelector("#loginPassword").value="";
+      document.querySelector("#loginForm").hidden=true;
+      document.querySelector("#verifyAccount").hidden=false;
+      document.querySelector("#verificationEmail").textContent=email;
+      document.querySelector("#verificationMessage").hidden=true;
+      document.querySelector("#loginTitle").textContent="Confirmez votre adresse e-mail.";
+      document.querySelector("#loginDescription").textContent="Dernière étape pour accéder à votre chantier.";
+      document.querySelector("#loginTitle").focus();
+    } else {throw new Error("La connexion n’a pas pu être ouverte. Réessayez.");}
   }catch(error){document.querySelector("#loginError").textContent=error.message;document.querySelector("#loginError").hidden=false;}
-  finally{button.disabled=false;}
+  finally{button.disabled=false;button.textContent=registrationMode?"Créer mon compte":"Se connecter";document.querySelector("#toggleRegister").disabled=false;}
 };
 document.querySelector("#syncButton").onclick=()=>{document.querySelector("#syncDialog").showModal();void renderSync();};
 document.querySelector("#closeSync").onclick=()=>document.querySelector("#syncDialog").close();
@@ -1146,7 +1177,6 @@ document.querySelector("#syncProblems").onclick=async(event)=>{
   await cloud.exclusive(()=>cloud.engine.discard(cloud.snapshot.projectId,button.dataset.discardTask));
   project=await cloud.project();state.records=project.floors[CURRENT_FLOOR].records;render();await renderSync();
 };
-document.querySelector("#refreshData").onclick=()=>localMode?location.reload():void syncCloud();
 window.addEventListener("online",()=>void syncCloud());
 window.addEventListener("offline",()=>void renderSync());
 setInterval(()=>{if(document.visibilityState==="visible")void syncCloud();},30000);
@@ -1162,3 +1192,53 @@ void initializeAccess();
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(error => console.error("Cache hors connexion indisponible", error));
 }
+
+// Presentation only: collapse secondary filters on narrow screens.
+const compactLayout=window.matchMedia("(max-width: 820px)");
+function updateFilterLayout() { document.querySelector("#secondaryFilters").open=!compactLayout.matches; }
+compactLayout.addEventListener("change",updateFilterLayout);
+updateFilterLayout();
+
+document.querySelector("#confirmProgress").onclick=async()=>{
+  await saveQueue;
+  const button=document.querySelector("#confirmProgress");
+  const count=localMode?Object.values(state.records).filter(r=>r.draft).length:(await cloud.engine.operations(cloud.snapshot.projectId)).filter(o=>o.state==="draft").length;
+  if(!count){document.querySelector("#saveStatus").textContent="Aucun brouillon à valider.";return;}
+  if(!confirm("Valider les "+count+" saisies de ce projet enregistrées sur cet appareil ? "+(localMode?"Elles resteront locales, car vous n’êtes pas connecté.":"Elles seront partagées avec l’équipe dès que la connexion le permettra.")))return;
+  button.disabled=true;document.querySelector("#cancelProgress").disabled=true;saving=true;
+  try{
+    if(localMode){
+      const next=structuredClone(project);
+      for(const record of Object.values(next.floors[CURRENT_FLOOR].records))if(record.draft){
+        if(record.progress<lockedProgress(record)&&!record.draftJustified)throw new Error("Justifiez les diminutions avant de valider.");
+        record.lockedProgress=lockedProgress(record);record.confirmedProgress=record.progress;record.confirmedDay=projectDay();record.draft=false;record.draftJustified=false;delete record.draftBefore;
+      }
+      await projectRepository.save(next);project=next;state.records=next.floors[CURRENT_FLOOR].records;
+      document.querySelector("#saveStatus").textContent="Saisies validées sur cet appareil — non partagées";
+    }else{await cloud.confirmDrafts();await syncCloud();await renderSync();}
+    render();
+  }catch(error){document.querySelector("#saveStatus").textContent="Validation interrompue : "+error.message;}
+  finally{button.disabled=false;document.querySelector("#cancelProgress").disabled=false;saving=false;renderEditor();}
+};
+
+document.querySelector("#cancelProgress").onclick=async()=>{
+  await saveQueue;
+  if(!confirm("Annuler les brouillons non validés de ce projet sur cet appareil ? Les saisies déjà validées seront conservées."))return;
+  saving=true;
+  document.querySelector("#confirmProgress").disabled=true;
+  document.querySelector("#cancelProgress").disabled=true;
+  try{
+    if(localMode){
+      const next=structuredClone(project);
+      for(const [key,record] of Object.entries(next.floors[CURRENT_FLOOR].records))if(record.draft){
+        if(!record.draftBefore)throw new Error("Un ancien brouillon ne possède pas de copie antérieure. Il est conservé pour éviter une perte de données.");
+        next.floors[CURRENT_FLOOR].records[key]=record.draftBefore;
+      }
+      await projectRepository.save(next);project=next;
+    }else{await cloud.cancelDrafts();project=await cloud.project();}
+    state.records=project.floors[CURRENT_FLOOR].records;
+    resetCorrectionState();render();
+    document.querySelector("#saveStatus").textContent="Brouillons annulés — valeurs validées conservées";
+  }catch(error){document.querySelector("#saveStatus").textContent=error.message;}
+  finally{saving=false;document.querySelector("#confirmProgress").disabled=false;document.querySelector("#cancelProgress").disabled=false;renderEditor();}
+};

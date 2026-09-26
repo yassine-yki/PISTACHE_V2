@@ -11,7 +11,7 @@ export class SyncEngine {
     return (await this.store.all<Operation>("operations"))
       .filter(o => o.userId === this.userId && o.projectId === projectId && o.state !== "discarded");
   }
-  async enqueue(projectId: string, key: string, record: ProgressRecord, correction: {reason: string; note: string} | null = null, expectedRecord?: ProgressRecord, expectedVersion?: number) {
+  async enqueue(projectId: string, key: string, record: ProgressRecord, correction: {reason: string; note: string} | null = null, expectedRecord?: ProgressRecord, expectedVersion?: number, draft = false) {
     const snapshot = await this.store.snapshot(projectId);
     if (!snapshot || !editable(snapshot, this.userId, key, Boolean(correction))) throw new Error("Cette tâche ne vous est pas affectée.");
     const task = snapshot.tasks.find(t => t.key === key)!;
@@ -22,17 +22,19 @@ export class SyncEngine {
         throw new Error("Une saisie existe dans un autre onglet. Actualisez avant de modifier.");
     }
     const related = (await this.operations(projectId)).filter(o => o.taskId === task.id);
-    if (related.some(o => o.state !== "pending")) throw new Error("Résolvez d'abord la modification en conflit.");
+    if (related.some(o => o.state !== "pending" && o.state !== "draft")) throw new Error("Résolvez d'abord la modification en conflit.");
     // Chain by version, never by the device clock or IndexedDB's UUID ordering.
-    const previous = related.sort((a,b) => b.baseVersion - a.baseVersion)[0];
+    const existingDraft=related.find(o=>o.state==="draft");
+    const previous = related.filter(o=>o.state!=="draft").sort((a,b) => b.baseVersion - a.baseVersion)[0];
     const assignment = snapshot.assignments.find(a => a.room_task_id === task.id && a.assignee_id === this.userId && !a.ended_at);
     const operation: Operation = {
-      id: crypto.randomUUID(), projectId, userId: this.userId, deviceId: this.deviceId,
+      id: draft && existingDraft ? existingDraft.id : crypto.randomUUID(), projectId, userId: this.userId, deviceId: this.deviceId,
       taskId: task.id, key, assignmentId: assignment?.id || null,
-      baseVersion: previous ? previous.baseVersion + 1 : task.version,
-      dependsOn: previous?.id || null, createdAt: new Date().toISOString(), state: "pending",
+      baseVersion: existingDraft?.baseVersion ?? (previous ? previous.baseVersion + 1 : task.version),
+      dependsOn: existingDraft ? existingDraft.dependsOn : previous?.id || null, createdAt: new Date().toISOString(), state: draft ? "draft" : "pending",
       payload: { progress: record.progress, blocked: record.blocked, note: record.note,
         start_date: record.startDate || null, end_date: record.endDate || null,
+        ...(draft && existingDraft ? {correction_reason:existingDraft.payload.correction_reason,correction_note:existingDraft.payload.correction_note} : {}),
         ...(correction ? { correction_reason: correction.reason, correction_note: correction.note } : {}) },
     };
     await this.store.put(operation);
@@ -41,10 +43,19 @@ export class SyncEngine {
   async records(projectId: string): Promise<Record<string, ProgressRecord>> {
     const snapshot = await this.store.snapshot(projectId);
     const result = Object.fromEntries((snapshot?.tasks || []).map(t => [t.key, t.record]));
-    for (const operation of (await this.operations(projectId)).filter(o => o.state === "pending").sort((a,b) => a.baseVersion-b.baseVersion)) {
-      result[operation.key] = recordFromPayload(operation.payload);
+    for (const operation of (await this.operations(projectId)).filter(o => o.state === "pending" || o.state === "draft").sort((a,b) => a.baseVersion-b.baseVersion)) {
+      result[operation.key] = {...result[operation.key],...recordFromPayload(operation.payload)};
     }
     return result;
+  }
+  async cancelDrafts(projectId: string) {
+    const drafts=(await this.operations(projectId)).filter(o=>o.state==="draft");
+    await this.store.putMany(drafts.map(o=>({...o,state:"discarded" as const})));
+  }
+  async confirmDrafts(projectId: string) {
+    const drafts=(await this.operations(projectId)).filter(o=>o.state==="draft");
+    await this.store.putMany(drafts.map(o=>({...o,state:"pending" as const})));
+    return drafts.length;
   }
   async flush(projectId: string) {
     const queue = (await this.operations(projectId)).sort((a,b) => a.baseVersion-b.baseVersion);
@@ -71,7 +82,7 @@ export class SyncEngine {
     }
   }
   async discard(projectId: string, taskId: string) {
-    for (const operation of await this.operations(projectId)) if (operation.taskId === taskId && operation.state !== "pending") {
+    for (const operation of await this.operations(projectId)) if (operation.taskId === taskId && operation.state !== "pending" && operation.state !== "draft") {
       operation.state = "discarded"; await this.store.put(operation);
     }
   }
