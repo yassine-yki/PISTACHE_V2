@@ -722,5 +722,25 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
   .plan-stage .plan-viewport { min-height: 0; max-height: none; }
 }
 @media (pointer: coarse) {
-  .plan-viewport { touch-action: pan-y; cursor: default; }
+  .plan-viewport { touch-action: none; cursor: default; }
+}
+.management-group { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); min-width: 0; }
+.management-group > summary, .management-task > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; cursor: pointer; overflow-wrap: anywhere; }
+.management-group > summary::before, .management-task > summary::before { content: '▸'; flex: none; }
+.management-group[open] > summary::before, .management-task[open] > summary::before { content: '▾'; }
+.management-group > summary strong, .management-task > summary span { flex: 1; }
+.management-group > summary > span, .management-task small { font-size: 12px; color: var(--muted); }
+.task-group-controls { display: grid; gap: 12px; padding: 16px; background: var(--surface-soft); border-top: 1px solid var(--line); }
+.task-group-controls input[type="checkbox"] { width: auto; }
+.task-group-controls .button { justify-self: start; }
+.management-task { margin: 0 12px; border-top: 1px solid var(--line); }
+.management-task .task-management-form { margin: 0; padding: 12px; max-width: none; box-sizing: border-box; }
+@media(max-width: 600px) { .management-group > summary, .management-task > summary { flex-wrap: wrap; padding: 12px; } .management-task small { flex-basis: 100%; } }
+
+.assignment-floor > summary { cursor: pointer; font-weight: 700; padding: 12px 0; }
+.assignment-floor { border-bottom: 1px solid var(--line); }
+@media(max-width:820px) {
+  .plan-stage .zoom-controls #zoomIn, .plan-stage .zoom-controls #zoomOut { display:none; }
+  .plan-stage .zoom-controls .zoom-slider { grid-row:1; }
+  .plan-stage .zoom-controls #fitPlan { grid-row:2; }
 }

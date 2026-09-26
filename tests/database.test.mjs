@@ -319,6 +319,8 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     assert.equal((await query('select id from public.progress_updates where room_task_id=$1',[task])).length,0);
     assert.equal((await submit(operation(task,a,3,payload(45)))).error_code,'task_hidden');
     await login(viewer);
+    assert.equal((await submit(operation(task,null,3,payload(95)))).error_code,'permission_denied');
+    assert.equal((await first('select progress from public.room_tasks where id=$1',[task])).progress,35);
     assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,1);
     await login(admin);
     await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',true,[]]);

@@ -874,46 +874,47 @@ function stopDragging(event) {
 elements.planViewport.addEventListener("pointerup", stopDragging);
 elements.planViewport.addEventListener("pointercancel", stopDragging);
 
-// One finger scrolls the page; two fingers zoom and move the plan.
-let pinchState = null;
-let pinchInProgress = false;
+// One finger pans the plan; two fingers pinch around their midpoint.
+let pinchState=null, touchPan=null, touchMoved=false;
 function touchGeometry(touches) {
-  const rect = elements.planViewport.getBoundingClientRect();
-  const [a, b] = touches;
-  return { x: (a.clientX+b.clientX)/2-rect.left, y: (a.clientY+b.clientY)/2-rect.top,
-    distance: Math.max(1,Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY)) };
+  const rect=elements.planViewport.getBoundingClientRect(),[a,b]=touches;
+  return {x:(a.clientX+b.clientX)/2-rect.left,y:(a.clientY+b.clientY)/2-rect.top,
+    distance:Math.max(1,Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY))};
 }
-elements.planViewport.addEventListener("touchstart", event => {
-  if(event.touches.length !== 2) return;
-  event.preventDefault();
-  pinchInProgress = true;
-  suppressPlanClick = true;
-  pinchState = touchGeometry(event.touches);
-}, {passive:false});
-elements.planViewport.addEventListener("touchmove", event => {
-  if(!pinchInProgress) return;
-  event.preventDefault();
-  if(event.touches.length !== 2) { pinchState=null; return; }
-  const next=touchGeometry(event.touches);
-  if(pinchState) {
-    setZoom(state.zoom*next.distance/pinchState.distance,pinchState.x,pinchState.y);
-    state.panX+=next.x-pinchState.x;
-    state.panY+=next.y-pinchState.y;
-    renderZoom();
-  }
-  pinchState=next;
-}, {passive:false});
-function endPinch(event) {
-  if(!pinchInProgress) return;
-  if(event.cancelable) event.preventDefault();
-  pinchState=null;
-  if(event.touches.length === 0) {
-    pinchInProgress=false;
-    window.setTimeout(()=>{suppressPlanClick=false;},350);
+function beginPlanTouch(event) {
+  if(event.touches.length===2) {
+    event.preventDefault();pinchState=touchGeometry(event.touches);touchPan=null;touchMoved=true;suppressPlanClick=true;
+  } else if(event.touches.length===1) {
+    const t=event.touches[0];touchPan={x:t.clientX,y:t.clientY};pinchState=null;
   }
 }
-elements.planViewport.addEventListener("touchend",endPinch,{passive:false});
-elements.planViewport.addEventListener("touchcancel",endPinch,{passive:false});
+elements.planViewport.addEventListener('touchstart',beginPlanTouch,{passive:false});
+elements.planViewport.addEventListener('touchmove',event=>{
+  event.preventDefault();
+  if(event.touches.length===2) {
+    const next=touchGeometry(event.touches);
+    if(pinchState) {
+      setZoom(state.zoom*next.distance/pinchState.distance,pinchState.x,pinchState.y);
+      state.panX+=next.x-pinchState.x;state.panY+=next.y-pinchState.y;
+    }
+    pinchState=next;touchPan=null;touchMoved=true;
+  } else if(event.touches.length===1 && touchPan) {
+    const t=event.touches[0],dx=t.clientX-touchPan.x,dy=t.clientY-touchPan.y;
+    if(!touchMoved && Math.hypot(dx,dy)<4)return;
+    state.panX+=dx;state.panY+=dy;touchPan={x:t.clientX,y:t.clientY};touchMoved=true;
+  }
+  if(touchMoved)suppressPlanClick=true;
+  renderZoom();
+},{passive:false});
+function endPlanTouch(event) {
+  if(touchMoved && event.cancelable)event.preventDefault();
+  pinchState=null;touchPan=null;
+  if(event.type!=='touchcancel' && event.touches.length) {beginPlanTouch(event);return;}
+  if(touchMoved)window.setTimeout(()=>{suppressPlanClick=false;},350);
+  touchMoved=false;
+}
+elements.planViewport.addEventListener('touchend',endPlanTouch,{passive:false});
+elements.planViewport.addEventListener('touchcancel',endPlanTouch,{passive:false});
 
 let planLoadVersion = 0;
 async function loadDxfSource(source, name, size, version = ++planLoadVersion) {
@@ -1161,9 +1162,24 @@ async function syncCloud() {
 async function renderAdminPage() {
   if(!cloud || currentUser?.role!=="admin") return;
   if(adminPage==="tasks") {
-    document.querySelector("#taskManagementList").innerHTML=(cloud.snapshot.taskTypes || []).map(type=>
-      '<form class="access-form task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><small>'+escapeSvgText(type.zone==='bathroom'?'Salle de bain':type.zone==='bedroom'?'Chambre':'Loggia')+'</small><label class="field">Intitulé<input name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"></label><label><input type="checkbox" name="hidden" '+(type.hidden?'checked':'')+'> Masquer pour tout le projet (sauf admins)</label><details><summary>Masquer pour certaines personnes</summary>'+cloud.snapshot.members.filter(m=>m.role!=='admin').map(m=>'<label class="task-member-option"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+((type.hidden_user_ids || []).includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="submit" class="button primary">Enregistrer</button><p role="status"></p></form>'
-    ).join('');
+    const groups=new Map();
+    for(const type of cloud.snapshot.taskTypes || []) {
+      const definition=tasksByZone[type.zone]?.find(task=>task.id===type.code);
+      const title=type.group_label || (definition ? taskGroup(type.zone,definition.sourceColumn) : "Autres");
+      const zone=type.zone==='bathroom'?'Salle de bain':'Chambre';
+      const key=zone+' — '+title;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(type);
+    }
+    const list=document.querySelector("#taskManagementList");
+    list.innerHTML=[...groups].map(([title,types])=>{
+      const people=cloud.snapshot.members.filter(m=>m.role!=='admin');
+      const controls='<div class="task-group-controls"><label><input type="checkbox" data-group-hidden> Masquer tout le groupe pour le projet</label><details><summary>Masquer le groupe pour certaines personnes</summary>'+people.map(m=>'<label class="task-member-option"><input type="checkbox" data-group-user="'+m.user_id+'"> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="button" class="button primary" data-save-group>Enregistrer le groupe</button><p role="status" data-group-status></p></div>';
+      return '<details class="management-group"><summary><strong>'+escapeSvgText(title)+'</strong><span>'+types.length+' tâches</span></summary>'+controls+types.map(type=>
+        '<details class="management-task"><summary><span data-task-heading>'+escapeSvgText(type.label)+'</span><small data-task-visibility></small></summary>'+'<form class="access-form task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><small>'+escapeSvgText(type.zone==='bathroom'?'Salle de bain':type.zone==='bedroom'?'Chambre':'Loggia')+'</small><label class="field">Intitulé<input name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"></label><label><input type="checkbox" name="hidden" '+(type.hidden?'checked':'')+'> Masquer pour tout le projet (sauf admins)</label><details><summary>Masquer pour certaines personnes</summary>'+cloud.snapshot.members.filter(m=>m.role!=='admin').map(m=>'<label class="task-member-option"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+((type.hidden_user_ids || []).includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="submit" class="button primary">Enregistrer</button><p role="status"></p></form>'+'</details>'
+      ).join('')+'</details>';
+    }).join('');
+    list.querySelectorAll('.management-group').forEach(updateManagementGroup);
   } else if(adminPage==="team") {
     const snapshot=cloud.snapshot;
     const people=await cloud.people().catch(()=>snapshot.members.map(member=>({id:member.user_id,name:member.name})));
@@ -1183,12 +1199,12 @@ async function renderAdminPage() {
     const scope=await cloud.assignmentScope();
     const activeFloors=scope.floors.filter(f=>!f.archived_at);
     document.querySelector("#assignmentBlocks").innerHTML='<legend>Étages et blocs</legend>'+activeFloors.map(f=>
-      '<div class="assignment-floor"><strong>'+escapeSvgText(f.label)+'</strong><label class="block-assignment"><input type="checkbox" name="assignmentFloor" value="'+f.id+'"><span>Tout cet étage</span></label>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).map(b=>{
+      '<details class="assignment-floor"><summary>'+escapeSvgText(f.label)+'</summary><label class="block-assignment"><input type="checkbox" name="assignmentFloor" value="'+f.id+'"><span>Tout cet étage</span></label>'+scope.blocks.filter(b=>b.floor_id===f.id&&!b.archived_at).map(b=>{
         const roomIds=new Set(scope.rooms.filter(r=>r.block_id===b.id&&!r.archived_at).map(r=>r.id));
         const taskIds=new Set(scope.tasks.filter(t=>roomIds.has(t.room_id)&&!t.archived_at).map(t=>t.id));
         const people=[...new Set(scope.assignments.filter(a=>!a.ended_at&&taskIds.has(a.room_task_id)).map(a=>snapshot.members.find(m=>m.user_id===a.assignee_id)?.name||"Intervenant"))];
         return '<label class="block-assignment"><input type="checkbox" name="assignmentBlock" value="'+b.id+'" '+(!taskIds.size?'disabled':'')+'><span>Bloc '+escapeSvgText(b.label)+'<small>'+escapeSvgText(people.join(', ')||'Non affecté')+' · '+taskIds.size+' tâches</small></span></label>';
-      }).join('')+'</div>').join('');
+      }).join('')+'</details>').join('');
     document.querySelector("#assignmentPerson").innerHTML='<option value="">Retirer les affectations</option>'+snapshot.members.filter(m=>m.status==="active"&&m.role!=="viewer").map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join('');
   } else if(adminPage==="history") {
     const history=await cloud.history();
@@ -1404,6 +1420,48 @@ document.querySelector("#taskManagementList").addEventListener("submit",async ev
   button.disabled=true;status.textContent="Enregistrement…";
   try{
     await cloud.manageTaskType(form.dataset.typeId,form.elements.label.value,form.elements.hidden.checked,[...form.querySelectorAll('[name="hiddenUser"]:checked')].map(input=>input.value));
-    status.textContent="Modifications enregistrées.";render();
+    status.textContent="Modifications enregistrées.";
+    form.closest(".management-task").querySelector("[data-task-heading]").textContent=form.elements.label.value;
+    updateManagementGroup(form.closest(".management-group"));render();
   }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+});
+
+function updateManagementGroup(group) {
+  const forms=[...group.querySelectorAll('.task-management-form')];
+  const set=(control,values)=>{control.checked=values.every(Boolean);control.indeterminate=values.some(Boolean)&&!control.checked;};
+  set(group.querySelector('[data-group-hidden]'),forms.map(f=>f.elements.hidden.checked));
+  group.querySelectorAll('[data-group-user]').forEach(control=>set(control,forms.map(f=>[...f.querySelectorAll('[name="hiddenUser"]')].find(input=>input.value===control.dataset.groupUser)?.checked)));
+  forms.forEach(f=>{f.closest('.management-task').querySelector('[data-task-visibility]').textContent=f.elements.hidden.checked?'Masquée pour le projet':f.querySelector('[name="hiddenUser"]:checked')?'Masquée pour certaines personnes':'Visible';});
+}
+document.querySelector('#taskManagementList').addEventListener('change',event=>{
+  const group=event.target.closest('.management-group');if(!group)return;
+  if(event.target.matches('[data-group-hidden],[data-group-user]')) {
+    group.querySelectorAll('.task-management-form').forEach(form=>{
+      const input=event.target.matches('[data-group-hidden]')?form.elements.hidden:[...form.querySelectorAll('[name="hiddenUser"]')].find(input=>input.value===event.target.dataset.groupUser);
+      if(input)input.checked=event.target.checked;
+    });
+  }
+  updateManagementGroup(group);
+  group.querySelector('[data-group-status]').textContent='Modifications à enregistrer.';
+});
+document.querySelector('#taskManagementList').addEventListener('click',async event=>{
+  const button=event.target.closest('[data-save-group]');if(!button)return;
+  const group=button.closest('.management-group'),status=group.querySelector('[data-group-status]');
+  const controls=[...group.querySelectorAll('input,button')];
+  for(const form of group.querySelectorAll('.task-management-form')) { if(!form.reportValidity())return; }
+  controls.forEach(c=>c.disabled=true);
+  let saved=0;
+  try {
+    for(const form of group.querySelectorAll('.task-management-form')) {
+      if(!form.reportValidity())throw new Error('Vérifiez les intitulés des tâches.');
+    }
+    for(const form of group.querySelectorAll('.task-management-form')) {
+      status.textContent='Enregistrement du groupe…';
+      await cloud.manageTaskType(form.dataset.typeId,form.elements.label.value,form.elements.hidden.checked,[...form.querySelectorAll('[name="hiddenUser"]:checked')].map(i=>i.value));
+      form.closest('.management-task').querySelector('[data-task-heading]').textContent=form.elements.label.value;
+      saved++;
+    }
+    status.textContent=saved+' tâches enregistrées.';render();
+  }catch(error){status.textContent=saved+' tâches enregistrées. '+error.message+' Vous pouvez réessayer pour terminer.';}
+  finally{controls.forEach(c=>c.disabled=false);updateManagementGroup(group);}
 });
