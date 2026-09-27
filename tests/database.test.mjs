@@ -381,6 +381,7 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   await db.exec('reset role');
   await db.exec("alter table auth.users add column raw_app_meta_data jsonb not null default '{}'; create role service_role nologin;");
   await db.exec(await readFile(new URL('../supabase/migrations/0010_invitation_accounts.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0011_finalize_invitations_outside_auth_trigger.sql',import.meta.url),'utf8'));
   await login(admin);
   const p=(await first("select public.create_project('Invites') as id")).id;
   const inv=(await first('select public.create_account_invitation($1,$2) as data',[p,'viewer'])).data;
@@ -390,11 +391,17 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   assert.equal((await query('select id from public.account_invitations')).length,0);
   await db.exec('reset role');
   const user=randomUUID();
-  await reject('insert into auth.users(id) values ($1)',[randomUUID()],/invitation_invalid/);
+  const uninvited=randomUUID();
+  await query('insert into auth.users(id) values ($1)',[uninvited]);
+  assert.equal((await query('select id from public.profiles where id=$1',[uninvited])).length,0);
   const hash=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[inv.token])).h;
   await query('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[user,JSON.stringify({invitation_hash:hash,username:'new.person'})]);
+  await login(null,'service_role');
+  await query('select public.complete_account_invitation($1,$2,$3)',[hash,user,'new.person']);
+  await db.exec('reset role');
   assert.equal((await first('select role from public.project_members where project_id=$1 and user_id=$2',[p,user])).role,'viewer');
-  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:hash,username:'another.person'})],/invitation_invalid/);
+  await login(null,'service_role');
+  await reject('select public.complete_account_invitation($1,$2,$3)',[hash,user,'new.person'],/invitation_invalid/);
   await login(admin);
 
   const expiry=(await first('select public.create_account_invitation($1,$2) as data',[p,'worker'])).data;
@@ -402,16 +409,24 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   await db.exec('reset role');
   const expiryHash=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[expiry.token])).h;
   await query("update public.account_invitations set expires_at=now()-interval '1 second' where id=$1",[expiry.id]);
-  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:expiryHash,username:'expired.person'})],/invitation_invalid/);
+  const expiredUser=randomUUID();await query('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[expiredUser,JSON.stringify({invitation_hash:expiryHash,username:'expired.person'})]);
+  await login(null,'service_role');
+  await reject('select public.complete_account_invitation($1,$2,$3)',[expiryHash,expiredUser,'expired.person'],/invitation_invalid/);
+  await db.exec('reset role');
   const duplicateHash=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[duplicate.token])).h;
-  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:duplicateHash,username:'new.person'})],/duplicate key/);
+  const duplicateUser=randomUUID();await query('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[duplicateUser,JSON.stringify({invitation_hash:duplicateHash,username:'new.person'})]);
+  await login(null,'service_role');
+  await reject('select public.complete_account_invitation($1,$2,$3)',[duplicateHash,duplicateUser,'new.person'],/duplicate key/);
+  await db.exec('reset role');
   assert.equal((await first('select used_at from public.account_invitations where id=$1',[duplicate.id])).used_at,null);
   await login(admin);
   const revoke=(await first('select public.create_account_invitation($1,$2) as data',[p,'worker'])).data;
   await query('select public.revoke_account_invitation($1)',[revoke.id]);
   await db.exec('reset role');
   const hash2=(await first("select encode(sha256(convert_to($1,'UTF8')),'hex') as h",[revoke.token])).h;
-  await reject('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[randomUUID(),JSON.stringify({invitation_hash:hash2,username:'revoked.person'})],/invitation_invalid/);
+  const revokedUser=randomUUID();await query('insert into auth.users(id,raw_app_meta_data) values ($1,$2)',[revokedUser,JSON.stringify({invitation_hash:hash2,username:'revoked.person'})]);
+  await login(null,'service_role');
+  await reject('select public.complete_account_invitation($1,$2,$3)',[hash2,revokedUser,'revoked.person'],/invitation_invalid/);
  });
 
 });

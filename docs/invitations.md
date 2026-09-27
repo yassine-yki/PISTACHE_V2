@@ -2,13 +2,13 @@
 
 ## Mise en service
 
-1. Appliquer les migrations précédentes jusqu’à `0009`, puis `0010_invitation_accounts.sql` dans Supabase SQL Editor.
+1. Appliquer les migrations précédentes jusqu’à `0009`, puis `0010_invitation_accounts.sql` et `0011_finalize_invitations_outside_auth_trigger.sql` dans Supabase SQL Editor.
 2. Déployer `supabase/functions/accept-invitation/index.ts` sous le nom `accept-invitation`. Avec la CLI Supabase connectée :
 
    `supabase functions deploy accept-invitation --project-ref pxfsughdqhgzgbtlpsyv --no-verify-jwt`
 
-   Cette fonction est publique car l’invité n’a pas de compte. Elle exige le jeton secret d’invitation, vérifié et consommé par le trigger transactionnel en base. `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont les variables serveur Supabase. Ne jamais mettre la clé service dans Vite/Vercel côté client.
-3. Dans Auth, désactiver les nouvelles inscriptions publiques (« Allow new users to sign up »). La migration bloque aussi les créations sans invitation dans le trigger, même si une ancienne interface tente encore `signUp`.
+   Cette fonction est publique car l’invité n’a pas de compte. Elle exige le jeton secret d’invitation. La fonction SQL `complete_account_invitation` crée ensuite le profil, rattache le membre et consomme le lien dans une même transaction. Si cette transaction échoue, la fonction Edge supprime le compte Auth incomplet et laisse l’invitation disponible. `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont les variables serveur Supabase. Ne jamais mettre la clé service dans Vite/Vercel côté client.
+3. Dans Auth, désactiver les nouvelles inscriptions publiques (« Allow new users to sign up »). Cette option est obligatoire : les créations légitimes passent par la fonction Edge avec la clé serveur.
 4. Publier l’interface sur Vercel. Tester avec une invitation Lecture seule, puis vérifier qu’une deuxième création avec le même lien échoue.
 
 ## Utilisation
@@ -23,4 +23,4 @@ Le lien est un secret transmissible : une personne qui le reçoit avant sa conso
 
 ## Vérification
 
-`pnpm test` couvre l’interface et la fonction Edge avec le client Auth simulé ; `pnpm run test:database` vérifie les droits, la consommation transactionnelle, le refus des liens réutilisés/révoqués et le blocage de l’inscription publique. Le déploiement Edge réel reste à tester dans Supabase.
+`pnpm test` couvre l’interface et la fonction Edge avec le client Auth simulé ; `pnpm run test:database` vérifie les droits, la consommation transactionnelle et le refus des liens réutilisés ou révoqués. Le déploiement Edge réel reste à tester dans Supabase.
