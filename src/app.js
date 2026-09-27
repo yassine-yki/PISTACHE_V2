@@ -495,6 +495,14 @@ function currentTasks() {
   });
 }
 
+function taskTypeOrder(type) {
+  const definitions=tasksByZone[type.zone] || [];
+  const definitionIndex=definitions.findIndex(task=>task.id===type.code);
+  if(definitionIndex >= 0)return definitionIndex;
+  const storedOrder=Number(type.sort_order);
+  return Number.isFinite(storedOrder) ? storedOrder : Number.MAX_SAFE_INTEGER;
+}
+
 function normalizeTaskSelection() {
   const tasks = currentTasks();
   if (!tasks.length) {
@@ -1168,7 +1176,13 @@ async function renderAdminPage() {
   if(!cloud || currentUser?.role!=="admin") return;
   if(adminPage==="tasks") {
     const groups=new Map();
-    for(const type of cloud.snapshot.taskTypes || []) {
+    const orderedTypes=[...(cloud.snapshot.taskTypes || [])].sort((a,b)=>{
+      const zoneOrder={bathroom:0,bedroom:1,loggia:2};
+      return (zoneOrder[a.zone] ?? 3)-(zoneOrder[b.zone] ?? 3)
+        || taskTypeOrder(a)-taskTypeOrder(b)
+        || a.label.localeCompare(b.label,"fr",{numeric:true});
+    });
+    for(const type of orderedTypes) {
       const definition=tasksByZone[type.zone]?.find(task=>task.id===type.code);
       const title=type.group_label || (definition ? taskGroup(type.zone,definition.sourceColumn) : "Autres");
       const key=type.zone+'|'+title;

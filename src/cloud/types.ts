@@ -7,7 +7,7 @@ export type Assignment = { id: string; room_task_id: string; assignee_id: string
 export type Member = { user_id: string; role: Role; status: string; name: string };
 export type Snapshot = {
   projectId: string; name: string; userId: string; role: Role;
-  taskTypes?: {id:string;code:string;zone:string;label:string;hidden?:boolean;hidden_user_ids?:string[]}[];
+  taskTypes?: {id:string;code:string;zone:string;label:string;group_label?:string;source_column?:string;sort_order?:number;hidden?:boolean;hidden_user_ids?:string[]}[];
   tasks: CloudTask[]; assignments: Assignment[]; members: Member[]; cachedAt: string;
 };
 export type Payload = {
