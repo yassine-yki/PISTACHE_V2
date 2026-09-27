@@ -471,4 +471,15 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   assert.deepEqual((await first('select hidden_user_ids from public.task_types where id=$1',[visibleType])).hidden_user_ids,[]);
  });
 
+ await t.test('corrective Excel visibility also works through the project owner fallback',async()=>{
+  await db.exec('reset role');
+  await query("update public.profiles set display_name='Nom différent' where id=$1",[admin]);
+  await query("update public.task_types set hidden_user_ids='{}' where id=$1",[type]);
+  await db.exec(await readFile(new URL('../supabase/migrations/0018_enforce_merini_excel_visibility.sql',import.meta.url),'utf8'));
+  assert.deepEqual((await first('select hidden_user_ids from public.task_types where id=$1',[type])).hidden_user_ids,[admin]);
+  await login(admin);
+  assert.equal((await first('select private.task_type_visible($1) visible',[type])).visible,false);
+  assert.equal((await query('select id from public.task_types where id=$1',[type])).length,0);
+ });
+
 });
