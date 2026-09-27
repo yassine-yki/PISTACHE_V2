@@ -1164,6 +1164,15 @@ function cloudErrorMessage(error) {
   if(/timeout|aborted/i.test(message))return "La connexion a expiré. Relancez la synchronisation.";
   return message;
 }
+function activityChanges(before={},after={}) {
+  const changes=[];
+  if(before.progress!==after.progress)changes.push(`Avancement : ${before.progress ?? 0} % → ${after.progress ?? 0} %`);
+  if(Boolean(before.blocked)!==Boolean(after.blocked))changes.push(after.blocked ? "Tâche signalée bloquée" : "Blocage retiré");
+  if((before.note || "")!==(after.note || ""))changes.push(after.note ? `Observation : ${after.note}` : "Observation supprimée");
+  if((before.start_date || "")!==(after.start_date || ""))changes.push(`Début : ${after.start_date || "retiré"}`);
+  if((before.end_date || "")!==(after.end_date || ""))changes.push(`Fin : ${after.end_date || "retirée"}`);
+  return changes.length ? changes : ["Mise à jour enregistrée"];
+}
 async function syncCloud({refresh=true,closeDialog=false,refreshActivity=false}={}) {
   if(!cloud?.snapshot || synchronizing || !navigator.onLine) { await renderSync(); return; }
   const workspace=cloud; synchronizing=true;
@@ -1260,7 +1269,16 @@ async function renderAdminPage() {
     list.innerHTML=history.map(item=>{
       const task=cloud.snapshot.tasks.find(t=>t.id===item.room_task_id);
       const member=cloud.snapshot.members.find(m=>m.user_id===item.changed_by);
-      return '<article class="activity-item"><strong>'+escapeSvgText(member?.name || "Import")+'</strong><p>'+escapeSvgText(task?.key || item.room_task_id)+' : '+item.before_state.progress+' % → '+item.after_state.progress+' %</p><small>'+new Date(item.created_at).toLocaleString("fr-FR")+'</small></article>';
+      const [roomNumber,zone,code]=(task?.key || "").split(":");
+      const definition=tasksByZone[zone]?.find(entry=>entry.id===code);
+      const type=cloud.snapshot.taskTypes?.find(entry=>entry.zone===zone && entry.code===code);
+      const group=type?.group_label || (definition ? taskGroup(zone,definition.sourceColumn) : "Tâche");
+      const subtask=type?.label || definition?.label || code || "Tâche supprimée";
+      const zoneLabel=zone==="bathroom" ? "Salle de bain" : zone==="bedroom" ? "Chambre" : "Loggia";
+      const floorLabel=(activeProjectDefinition?.floors || []).find(floor=>floor.id===task?.floorCode)?.label || task?.floorCode?.toUpperCase() || "";
+      const changes=activityChanges(item.before_state,item.after_state);
+      const date=new Date(item.created_at).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});
+      return '<article class="activity-item"><header><strong>Chambre '+escapeSvgText(roomNumber || "—")+'</strong><span>'+escapeSvgText([floorLabel,zoneLabel].filter(Boolean).join(" · "))+'</span></header><dl><div><dt>Tâche</dt><dd>'+escapeSvgText(group)+'</dd></div><div><dt>Sous-tâche</dt><dd>'+escapeSvgText(subtask)+'</dd></div></dl><div class="activity-changes"><b>Saisie</b>'+changes.map(change=>'<span>'+escapeSvgText(change)+'</span>').join('')+'</div><footer><span>'+escapeSvgText(member?.name || "Import")+'</span><time datetime="'+escapeSvgText(item.created_at)+'">'+escapeSvgText(date)+'</time></footer></article>';
     }).join("") || '<p class="empty-state">Aucune modification enregistrée.</p>';
   }
 }

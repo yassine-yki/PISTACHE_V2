@@ -63,10 +63,19 @@ body { --green: #426b39; --green-dark: #31512c; --surface-soft: #f3f5ef; }
 #teamMessage.success, #assignmentMessage.success { color: var(--green-dark); }
 #assignmentMessage { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
 #assignmentMessage:empty { display: none; }
-.activity-list { display: grid; gap: 12px; }
-.activity-item { background: var(--surface); padding: 17px; border: 1px solid var(--line); border-radius: 9px; }
-.activity-item p { font-size: 14px; margin: 5px 0; overflow-wrap: anywhere; }
-.activity-item small { color: var(--muted); }
+.activity-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr)); gap:8px; align-items:start; }
+.activity-item { display:grid; gap:7px; min-width:0; background:var(--surface); padding:11px 12px; border:1px solid var(--line); border-radius:8px; }
+.activity-item header,.activity-item footer { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.activity-item header strong { font-size:15px; }
+.activity-item header span,.activity-item footer { color:var(--muted); font-size:11px; }
+.activity-item dl { display:grid; gap:3px; margin:0; }
+.activity-item dl div { display:grid; grid-template-columns:68px minmax(0,1fr); gap:6px; font-size:12px; }
+.activity-item dt { color:var(--muted); }
+.activity-item dd { margin:0; font-weight:650; overflow-wrap:anywhere; }
+.activity-changes { display:grid; gap:2px; padding-top:6px; border-top:1px solid var(--line); font-size:12px; }
+.activity-changes b { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
+.activity-changes span { overflow-wrap:anywhere; }
+.activity-item footer { padding-top:2px; }
 body[data-role="signed-out"] .topbar { opacity: .3; }
 .app-loading { position:fixed; z-index:25; inset:50% auto auto 50%; transform:translate(-50%,-50%); width:min(360px,calc(100vw - 40px)); display:grid; justify-items:center; gap:10px; padding:24px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.96); box-shadow:0 18px 55px rgba(24,42,25,.14); color:var(--ink); text-align:center; }
 .app-loading[hidden] { display:none; }
