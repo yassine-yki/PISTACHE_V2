@@ -497,5 +497,7 @@ with excel_order as (
 update public.task_types task set sort_order=excel_order.sort_order,updated_at=now()
 from excel_order where task.zone='bedroom' and task.source_column=excel_order.source_column
  and task.sort_order is distinct from excel_order.sort_order;
+create index if not exists progress_updates_project_created_idx
+ on public.progress_updates(project_id,created_at desc);
 notify pgrst, 'reload schema';
 commit;

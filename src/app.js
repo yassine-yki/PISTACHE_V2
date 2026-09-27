@@ -45,7 +45,7 @@ function persistProject(key, correction = null, previousRecord = null) {
     if(previousRecord) state.records[key]=previousRecord;
     document.querySelector("#saveStatus").textContent="Non enregistré : "+error.message;
     state.progressRuleMessage=error.message;
-  }).finally(()=>{saving=false;render();if(!localMode)queueMicrotask(()=>void syncCloud());});
+  }).finally(()=>{saving=false;render();});
   return saveQueue;
 }
 
@@ -1163,19 +1163,27 @@ function cloudErrorMessage(error) {
   if(/timeout|aborted/i.test(message))return "La connexion a expiré. Relancez la synchronisation.";
   return message;
 }
-async function syncCloud() {
+async function syncCloud({refresh=true,closeDialog=false,refreshActivity=false}={}) {
   if(!cloud?.snapshot || synchronizing || !navigator.onLine) { await renderSync(); return; }
   const workspace=cloud; synchronizing=true;
   try {
     await saveQueue;
-    await workspace.sync();
+    await workspace.sync(refresh);
     if(cloud!==workspace) return;
     currentUser={...workspace.user,role:workspace.snapshot.role};
     project=await workspace.project();state.records=currentFloorRecords();
     if(!roomAccessible(state.selectedRoom)) state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
     render(); await renderSync();
+    if(refreshActivity && currentUser.role==="admin" && adminPage==="history") {
+      try{await renderAdminPage();}
+      catch(error){document.querySelector("#activityList").innerHTML='<p class="empty-state">'+escapeSvgText(cloudErrorMessage(error))+'</p>';}
+    }
+    const dialog=document.querySelector("#syncDialog");
+    if(closeDialog && dialog.open)dialog.close();
+    return true;
   } catch(error) {
     if(cloud===workspace) { currentUser={...workspace.user,role:workspace.snapshot.role}; render(); await renderSync(); document.querySelector("#saveStatus").textContent="Synchronisation en attente : "+cloudErrorMessage(error); }
+    return false;
   } finally { synchronizing=false; }
 }
 async function renderAdminPage() {
@@ -1245,8 +1253,10 @@ async function renderAdminPage() {
       }).join('')+'</details>').join('');
     document.querySelector("#assignmentPerson").innerHTML='<option value="">Retirer les affectations</option>'+[...responsibleWorkers.values()].map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join('');
   } else if(adminPage==="history") {
+    const list=document.querySelector("#activityList");
+    list.innerHTML='<p class="empty-state">Chargement de l’activité…</p>';
     const history=await cloud.history();
-    document.querySelector("#activityList").innerHTML=history.map(item=>{
+    list.innerHTML=history.map(item=>{
       const task=cloud.snapshot.tasks.find(t=>t.id===item.room_task_id);
       const member=cloud.snapshot.members.find(m=>m.user_id===item.changed_by);
       return '<article class="activity-item"><strong>'+escapeSvgText(member?.name || "Import")+'</strong><p>'+escapeSvgText(task?.key || item.room_task_id)+' : '+item.before_state.progress+' % → '+item.after_state.progress+' %</p><small>'+new Date(item.created_at).toLocaleString("fr-FR")+'</small></article>';
@@ -1295,7 +1305,11 @@ document.querySelector("#adminNavigation").onclick=async(event)=>{
   const button=event.target.closest("[data-admin-page]");if(!button)return;
   adminPage=button.dataset.adminPage;renderAccessShell();
   try{await renderAdminPage();if(adminPage==="dashboard")requestAnimationFrame(fitPlan);}
-  catch(error){document.querySelector("#saveStatus").textContent=error.message;}
+  catch(error){
+    const message=cloudErrorMessage(error);
+    document.querySelector("#saveStatus").textContent=message;
+    if(adminPage==="history")document.querySelector("#activityList").innerHTML='<p class="empty-state">'+escapeSvgText(message)+'</p>';
+  }
 };
 function profileResponsibilityHtml() {
   if(currentUser?.role==="admin")return '<p class="profile-scope-summary">Accès administrateur à tout le projet, sauf aux tâches qui vous sont explicitement masquées.</p>';
@@ -1399,7 +1413,7 @@ document.querySelector("#loginForm").onsubmit=async(event)=>{
 
 document.querySelector("#syncButton").onclick=()=>{document.querySelector("#syncDialog").showModal();void renderSync();};
 document.querySelector("#closeSync").onclick=()=>document.querySelector("#syncDialog").close();
-document.querySelector("#retrySync").onclick=()=>void syncCloud();
+document.querySelector("#retrySync").onclick=()=>void syncCloud({refresh:false,closeDialog:true,refreshActivity:true});
 document.querySelector("#syncProblems").onclick=async(event)=>{
   const button=event.target.closest("[data-discard-task]");if(!button)return;
   if(!confirm("Conserver la valeur du serveur pour cette tâche ? Votre proposition restera archivée localement."))return;
@@ -1446,7 +1460,11 @@ document.querySelector("#confirmProgress").onclick=async()=>{
       }
       await projectRepository.save(next);project=next;state.records=currentFloorRecords();
       document.querySelector("#saveStatus").textContent="Saisies validées sur cet appareil — non partagées";
-    }else{await cloud.confirmDrafts();await syncCloud();await renderSync();}
+    }else{
+      await cloud.confirmDrafts();
+      const synced=await syncCloud({refresh:false,closeDialog:true,refreshActivity:true});
+      if(!synced)throw new Error("La synchronisation reste en attente. Réessayez avec le bouton Synchronisation.");
+    }
     render();
   }catch(error){document.querySelector("#saveStatus").textContent="Validation interrompue : "+error.message;}
   finally{button.disabled=false;document.querySelector("#cancelProgress").disabled=false;saving=false;renderEditor();}

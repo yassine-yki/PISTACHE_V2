@@ -155,13 +155,14 @@ export class CloudWorkspace {
     if(!this.snapshot) throw new Error("Aucun projet ouvert.");
     return this.exclusive(()=>this.engine.confirmDrafts(this.snapshot!.projectId));
   }
-  async sync() {
+  async sync(refreshAfter = true) {
     if (!this.snapshot) return;
     const projectId=this.snapshot.projectId;
     await this.exclusive(async () => {
       try {
         await this.engine.flush(projectId);
-        await this.refresh(projectId);
+        if(refreshAfter)await this.refresh(projectId);
+        else this.snapshot=await this.store.snapshot(projectId);
       } catch (error) {
         if (!networkError(error) && this.snapshot) {
           this.snapshot = { ...this.snapshot, role: "viewer", tasks: this.snapshot.tasks.map(t => ({ ...t, active: false })) };
@@ -187,7 +188,7 @@ export class CloudWorkspace {
     await this.exclusive(()=>this.refresh(this.snapshot!.projectId));
   }
   async history() {
-    return await unwrap(client!.from("progress_updates").select("*").eq("project_id",this.snapshot!.projectId).order("created_at",{ascending:false}).limit(80)) as any[];
+    return await unwrap(client!.from("progress_updates").select("id,room_task_id,changed_by,before_state,after_state,correction_reason,correction_note,created_at").eq("project_id",this.snapshot!.projectId).order("created_at",{ascending:false}).limit(80)) as any[];
   }
   async assignmentScope() {
     const projectId=this.snapshot!.projectId;
