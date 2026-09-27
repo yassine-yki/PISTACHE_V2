@@ -25,16 +25,16 @@ async function unwrap<T>(request: PromiseLike<{data: T; error: any}>): Promise<T
 async function allRows(table: string, projectId: string) {
   const pageSize=1000;
   const order=table === "project_members" ? "user_id" : "id";
-  const firstRequest=client!.from(table).select("*",{count:"exact"}).eq("project_id",projectId).order(order).range(0,pageSize-1);
-  const {data:first,error,count}=await firstRequest;
-  if(error)throw new Error(error.message);
-  const rows:any[]=[...(first || [])];
-  if(count===null || count<=pageSize)return rows;
-  const pages=await Promise.all(Array.from({length:Math.ceil(count/pageSize)-1},(_,index)=>{
-    const offset=(index+1)*pageSize;
-    return unwrap<any[] | null>(client!.from(table).select("*").eq("project_id",projectId).order(order).range(offset,offset+pageSize-1)).then(page=>page || []);
-  }));
-  for(const page of pages)rows.push(...page);
+  const rows:any[]=[];
+  let cursor:string | undefined;
+  while(true) {
+    let request=client!.from(table).select("*").eq("project_id",projectId).order(order,{ascending:true}).limit(pageSize);
+    if(cursor)request=request.gt(order,cursor);
+    const page=await unwrap<any[] | null>(request).then(result=>result || []);
+    rows.push(...page);
+    if(page.length<pageSize)break;
+    cursor=String(page[page.length-1][order]);
+  }
   return rows;
 }
 export class CloudWorkspace {

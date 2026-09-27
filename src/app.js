@@ -1157,6 +1157,12 @@ function syncError(code) {
     task_archived:"Cette tâche a été archivée.",invalid_payload:"La saisie n'est pas valide.",
     correction_required:"Une correction administrative est nécessaire."})[code] || code || "Modification refusée.";
 }
+function cloudErrorMessage(error) {
+  const message=String(error?.message || error || "Erreur inconnue.");
+  if(/statement timeout|canceling statement/i.test(message))return "Le serveur a mis trop de temps à répondre. Relancez la synchronisation.";
+  if(/timeout|aborted/i.test(message))return "La connexion a expiré. Relancez la synchronisation.";
+  return message;
+}
 async function syncCloud() {
   if(!cloud?.snapshot || synchronizing || !navigator.onLine) { await renderSync(); return; }
   const workspace=cloud; synchronizing=true;
@@ -1169,7 +1175,7 @@ async function syncCloud() {
     if(!roomAccessible(state.selectedRoom)) state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
     render(); await renderSync();
   } catch(error) {
-    if(cloud===workspace) { currentUser={...workspace.user,role:workspace.snapshot.role}; render(); await renderSync(); document.querySelector("#saveStatus").textContent="Synchronisation en attente : "+error.message; }
+    if(cloud===workspace) { currentUser={...workspace.user,role:workspace.snapshot.role}; render(); await renderSync(); document.querySelector("#saveStatus").textContent="Synchronisation en attente : "+cloudErrorMessage(error); }
   } finally { synchronizing=false; }
 }
 async function renderAdminPage() {
