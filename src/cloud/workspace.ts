@@ -23,12 +23,19 @@ async function unwrap<T>(request: PromiseLike<{data: T; error: any}>): Promise<T
   return data;
 }
 async function allRows(table: string, projectId: string) {
-  const rows: any[] = [];
-  for (let offset = 0; ; offset += 500) {
-    const page: any = await unwrap(client!.from(table).select("*").eq("project_id", projectId).order(table === "project_members" ? "user_id" : "id").range(offset, offset+499));
-    rows.push(...page);
-    if (page.length < 500) return rows;
-  }
+  const pageSize=1000;
+  const order=table === "project_members" ? "user_id" : "id";
+  const firstRequest=client!.from(table).select("*",{count:"exact"}).eq("project_id",projectId).order(order).range(0,pageSize-1);
+  const {data:first,error,count}=await firstRequest;
+  if(error)throw new Error(error.message);
+  const rows:any[]=[...(first || [])];
+  if(count===null || count<=pageSize)return rows;
+  const pages=await Promise.all(Array.from({length:Math.ceil(count/pageSize)-1},(_,index)=>{
+    const offset=(index+1)*pageSize;
+    return unwrap<any[] | null>(client!.from(table).select("*").eq("project_id",projectId).order(order).range(offset,offset+pageSize-1)).then(page=>page || []);
+  }));
+  for(const page of pages)rows.push(...page);
+  return rows;
 }
 export class CloudWorkspace {
   snapshot?: Snapshot;
@@ -57,6 +64,8 @@ export class CloudWorkspace {
     return navigator.locks.request("pistache-sync:" + this.namespace, action);
   }
   async projects(): Promise<{id: string; name: string}[]> {
+    const cached=(await this.store.all<Snapshot>("snapshots")).map(s=>({id:s.projectId,name:s.name}));
+    if(cached.length)return cached;
     try {
       if (!navigator.onLine) throw new Error("offline");
       return await unwrap(client!.from("projects").select("id,name").is("archived_at", null).order("name")) as any;
@@ -74,17 +83,25 @@ export class CloudWorkspace {
     }));
   }
   async refresh(projectId: string) {
-    const project: any = await unwrap(client!.from("projects").select("*").eq("id", projectId).single());
-    const memberships = await allRows("project_members", projectId);
+    const [project,memberships]=await Promise.all([
+      unwrap<any>(client!.from("projects").select("*").eq("id",projectId).single()),
+      allRows("project_members",projectId),
+    ]);
     const own = memberships.find(m => m.user_id === this.user.id && m.status === "active");
     if (!own) throw new Error("Vous n'avez plus accès à ce projet.");
-    const [rooms, types, tasks, assignments, floors, blocks] = await Promise.all(
-      ["rooms","task_types","room_tasks","task_assignments","floors","blocks"].map(t => allRows(t,projectId)));
-    const profiles: any = await unwrap(client!.from("profiles").select("id,display_name"));
-    const members: Member[] = memberships.map(m => ({...m,name:profiles.find((p:any)=>p.id===m.user_id)?.display_name || m.user_id}));
+    const [rooms,types,tasks,assignments,floors,blocks,profiles]=await Promise.all([
+      ...["rooms","task_types","room_tasks","task_assignments","floors","blocks"].map(t=>allRows(t,projectId)),
+      unwrap<any[] | null>(client!.from("profiles").select("id,display_name")).then(rows=>rows || []),
+    ]);
+    const profileById=new Map(profiles.map((profile:any)=>[profile.id,profile]));
+    const roomById=new Map(rooms.map(room=>[room.id,room]));
+    const typeById=new Map(types.map(type=>[type.id,type]));
+    const floorById=new Map(floors.map(floor=>[floor.id,floor]));
+    const blockById=new Map(blocks.map(block=>[block.id,block]));
+    const members: Member[] = memberships.map(m => ({...m,name:profileById.get(m.user_id)?.display_name || m.user_id}));
     const cloudTasks: CloudTask[] = tasks.flatMap(t => {
-      const room = rooms.find(r=>r.id===t.room_id), type=types.find(k=>k.id===t.task_type_id);
-      const floor=floors.find(f=>f.id===room?.floor_id), block=blocks.find(b=>b.id===room?.block_id);
+      const room = roomById.get(t.room_id), type=typeById.get(t.task_type_id);
+      const floor=floorById.get(room?.floor_id), block=blockById.get(room?.block_id);
       if (!room || !type || !floor) return [];
       return [{ id:t.id,floorCode:floor.code,key:room.number+":"+type.zone+":"+type.code,version:Number(t.version),
         active:![project.archived_at,t.archived_at,room.archived_at,type.archived_at,floor.archived_at,block?.archived_at].some(Boolean),
@@ -97,6 +114,8 @@ export class CloudWorkspace {
     this.snapshot=snapshot;
   }
   async open(projectId: string) {
+    const cached=await this.store.snapshot(projectId);
+    if(cached){this.snapshot=cached;return this.project();}
     await this.exclusive(async () => {
       try { if (!navigator.onLine) throw new Error("offline"); await this.refresh(projectId); }
       catch (error) {

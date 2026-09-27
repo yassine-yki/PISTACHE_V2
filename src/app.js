@@ -1008,6 +1008,7 @@ async function loadConfiguredPlan(projectDefinition) {
 }
 
 async function openProject(projectId) {
+  showAppLoading(localMode?"Préparation du plan…":"Chargement de vos données…");
   if(localMode) {
     const definition=PROJECT_CATALOG.find(p=>p.id===projectId);if(!definition)return;
     activeProjectDefinition=definition;
@@ -1026,9 +1027,11 @@ async function openProject(projectId) {
   elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
   elements.projectDialog.close();
   accessReady=true;adminPage="dashboard";state.selectedBlock="all";state.selectedType="all";
-  await loadConfiguredPlan(activeProjectDefinition);
   state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
-  render();if(!localMode){await renderSync();void syncCloud();}
+  render();
+  hideAppLoading();
+  void loadConfiguredPlan(activeProjectDefinition);
+  if(!localMode){await renderSync();void syncCloud();}
 }
 
 async function changeFloor(floorId) {
@@ -1056,7 +1059,7 @@ elements.projectList.innerHTML = PROJECT_CATALOG.map((definition) => `
 
 elements.projectList.addEventListener("click", (event) => {
   const choice = event.target.closest("[data-project-id]");
-  if (choice) void openProject(choice.dataset.projectId).catch(error => { const message=document.querySelector("#projectMessage"); if(message)message.textContent=error.message; });
+  if (choice) void openProject(choice.dataset.projectId).catch(error => { hideAppLoading();const message=document.querySelector("#projectMessage"); if(message)message.textContent=error.message; });
 });
 
 elements.projectDialog.addEventListener("cancel", (event) => {
@@ -1085,7 +1088,13 @@ function renderAccessShell() {
   ).join("") || '<p class="empty-state">Aucune tâche affectée pour le moment.</p>';
   if(!roomAccessible(state.selectedRoom)) { elements.roomTitle.textContent="En attente d'affectation"; elements.roomType.textContent=""; }
 }
+function showAppLoading(message="Chargement des données du chantier…") {
+  document.querySelector("#appLoadingText").textContent=message;
+  document.querySelector("#appLoading").hidden=false;
+}
+function hideAppLoading() { document.querySelector("#appLoading").hidden=true; }
 function showLogin(message="") {
+  hideAppLoading();
   accessReady=false; renderAccessShell();
   setRegistrationMode(false);
   document.querySelector("#loginError").textContent=message;
@@ -1110,7 +1119,7 @@ async function chooseProject() {
   document.querySelector("#createSharedProject").onclick=async(event)=>{
     event.target.disabled=true;
     try { const id=await cloud.createProject(); await openProject(id); }
-    catch(error){document.querySelector("#projectMessage").textContent=error.message;event.target.disabled=false;}
+    catch(error){hideAppLoading();document.querySelector("#projectMessage").textContent=error.message;event.target.disabled=false;}
   };
 }
 async function beginCloud(workspace) {
@@ -1118,6 +1127,7 @@ async function beginCloud(workspace) {
   currentUser={...cloud.user,role:"worker"};
   document.querySelector("#loginDialog").close();
   document.querySelector("#loginPassword").value="";
+  showAppLoading("Récupération de votre chantier…");
   await chooseProject();
 }
 function operationLabel(operation) {

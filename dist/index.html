@@ -6,8 +6,8 @@
     <meta name="description" content="Suivi visuel des travaux de second oeuvre de l'etage R+2." />
     <title>Projet MUC — Suivi du chantier</title>
     <link rel="icon" type="image/png" href="/muc-building.png" />
-    <script type="module" crossorigin src="/assets/index-BPB-sO6s.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Cf7oeii6.css">
+    <script type="module" crossorigin src="/assets/index-DJxJJGHs.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DCXbUM3k.css">
   </head>
   <body>
     <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
@@ -51,6 +51,12 @@
       <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
     <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button></nav>
+
+    <div class="app-loading" id="appLoading" role="status" aria-live="polite" hidden>
+      <span class="app-loading-spinner" aria-hidden="true"></span>
+      <strong>Ouverture du projet</strong>
+      <span id="appLoadingText">Chargement des données du chantier…</span>
+    </div>
 
     <main class="app-shell" id="mainWorkspace" hidden>
       <section class="workspace" aria-label="Plan interactif">

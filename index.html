@@ -51,6 +51,12 @@
     </header>
     <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button></nav>
 
+    <div class="app-loading" id="appLoading" role="status" aria-live="polite" hidden>
+      <span class="app-loading-spinner" aria-hidden="true"></span>
+      <strong>Ouverture du projet</strong>
+      <span id="appLoadingText">Chargement des données du chantier…</span>
+    </div>
+
     <main class="app-shell" id="mainWorkspace" hidden>
       <section class="workspace" aria-label="Plan interactif">
         
