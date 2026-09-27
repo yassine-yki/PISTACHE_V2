@@ -6,8 +6,8 @@
     <meta name="description" content="Suivi visuel des travaux de second oeuvre de l'etage R+2." />
     <title>Projet MUC — Suivi du chantier</title>
     <link rel="icon" type="image/png" href="/muc-building.png" />
-    <script type="module" crossorigin src="/assets/index-iJGHZag0.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BRQQz0Q6.css">
+    <script type="module" crossorigin src="/assets/index-Bh6WLGMF.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CDVKVY2m.css">
   </head>
   <body>
     <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
@@ -226,10 +226,14 @@
 </section>
     <section id="adminTasks" class="admin-page" hidden>
       <div class="page-heading"><h2>Gestion des tâches</h2><p>Ouvrez uniquement le groupe à modifier. Les tâches masquées restent visibles pour les administrateurs et leur historique est conservé.</p></div>
+      <div class="task-zone-tabs" role="tablist" aria-label="Zone des tâches">
+        <button type="button" class="active" role="tab" aria-selected="true" data-task-zone-tab="bedroom">Chambre</button>
+        <button type="button" role="tab" aria-selected="false" data-task-zone-tab="bathroom">Salle de bain</button>
+      </div>
       <div class="task-management-toolbar">
         <label class="task-management-search"><span class="sr-only">Rechercher une tâche</span><input id="taskManagementSearch" type="search" placeholder="Rechercher une tâche ou un groupe…" autocomplete="off"></label>
         <label><span class="sr-only">Filtrer les tâches</span><select id="taskManagementFilter"><option value="all">Toutes les tâches</option><option value="visible">Visibles</option><option value="hidden">Masquées</option><option value="people">Masquées pour certains</option></select></label>
-        <button type="button" class="button secondary" id="collapseTaskGroups">Tout replier</button>
+        <button type="button" class="button secondary" id="collapseTaskGroups">Fermer les groupes</button>
       </div>
       <div id="taskManagementList" class="task-management-list"></div><p id="taskManagementMessage" role="status" aria-live="polite"></p>
     </section>
