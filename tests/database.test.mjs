@@ -437,4 +437,27 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   await reject('select public.complete_account_invitation($1,$2,$3)',[hash2,revokedUser,'revoked.person'],/invitation_invalid/);
  });
 
+ await t.test('test progress reset clears entries and activity without changing project setup',async()=>{
+  await db.exec('reset role');
+  const before=await first(`select
+    (select count(*)::int from public.projects) projects,
+    (select count(*)::int from public.project_members) members,
+    (select count(*)::int from public.task_assignments) assignments,
+    (select count(*)::int from public.room_tasks) tasks,
+    (select count(*)::int from public.progress_updates) updates`);
+  assert.ok(before.updates>0);
+  await db.exec(await readFile(new URL('../supabase/migrations/0016_reset_test_progress.sql',import.meta.url),'utf8'));
+  const after=await first(`select
+    (select count(*)::int from public.projects) projects,
+    (select count(*)::int from public.project_members) members,
+    (select count(*)::int from public.task_assignments) assignments,
+    (select count(*)::int from public.room_tasks) tasks,
+    (select count(*)::int from public.progress_updates) updates,
+    (select count(*)::int from public.sync_operations) operations,
+    (select count(*)::int from public.room_tasks where progress<>0 or blocked or note<>'' or start_date is not null or end_date is not null or locked_progress<>0) dirty`);
+  assert.deepEqual({projects:after.projects,members:after.members,assignments:after.assignments,tasks:after.tasks},
+    {projects:before.projects,members:before.members,assignments:before.assignments,tasks:before.tasks});
+  assert.equal(after.updates,0);assert.equal(after.operations,0);assert.equal(after.dirty,0);
+ });
+
 });
