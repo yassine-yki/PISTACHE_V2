@@ -298,12 +298,12 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     }
   });
 
-  await t.test('task visibility hides data and rejects edits while preserving progress and admin access',async()=>{
+  await t.test('task visibility hides data from selected members including admins while preserving progress',async()=>{
     await db.exec('reset role');
     await db.exec(await readFile(new URL('../supabase/migrations/0006_task_visibility.sql',import.meta.url),'utf8'));
     await login(admin);
     const p=(await first("select public.create_project('Visibility') as id")).id;
-    for(const [u,r] of [[worker,'worker'],[viewer,'viewer']]) await query('select public.set_project_member($1,$2,$3,$4)',[p,u,r,'active']);
+    for(const [u,r] of [[worker,'worker'],[viewer,'viewer'],[outsider,'admin']]) await query('select public.set_project_member($1,$2,$3,$4)',[p,u,r,'active']);
     const f=(await first("insert into public.floors(project_id,code,label) values ($1,'r2','R2') returning id",[p])).id;
     await query("insert into public.rooms(project_id,floor_id,number) values ($1,$2,'201')",[p,f]);
     const type=(await first("insert into public.task_types(project_id,code,label,zone) values ($1,'paint','Paint','bedroom') returning id",[p])).id;
@@ -312,6 +312,8 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     await login(worker);
     assert.equal((await submit(operation(task,a,2,payload(35)))).status,'accepted');
     await reject('select public.manage_task_type($1,$2,$3,$4)',[type,'x',true,[]],/project_admin_required/);
+    await db.exec('reset role');
+    await db.exec(await readFile(new URL('../supabase/migrations/0013_hide_tasks_from_admins.sql',import.meta.url),'utf8'));
     await login(admin);
     await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',false,[worker]]);
     await login(worker);
@@ -322,6 +324,12 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     assert.equal((await submit(operation(task,null,3,payload(95)))).error_code,'permission_denied');
     assert.equal((await first('select progress from public.room_tasks where id=$1',[task])).progress,35);
     assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,1);
+    await login(admin);
+    await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',false,[outsider]]);
+    await login(outsider);
+    assert.equal((await query('select id from public.task_types where id=$1',[type])).length,0);
+    assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,0);
+    assert.equal((await submit(operation(task,null,3,payload(50)))).error_code,'task_hidden');
     await login(admin);
     await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',true,[]]);
     assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,1);
@@ -341,7 +349,7 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     const p=(await first('select public.create_mixed_use_project() as id')).id;
     assert.equal((await first('select count(*)::int as n from public.rooms where project_id=$1',[p])).n,129);
     const f=(await first("select id from public.floors where project_id=$1 and code='r5'",[p])).id;
-    assert.equal((await first('select public.assign_floors($1,$2,$3) as n',[p,[f],admin])).n,1750);
+    assert.equal((await first('select public.assign_floors($1,$2,$3) as n',[p,[f],admin])).n,1700);
     assert.equal((await first('select public.assign_floors($1,$2,$3) as n',[p,[f],admin])).n,0);
     await login(worker);
     await reject('select public.assign_floors($1,$2,$3)',[p,[f],worker],/project_admin_required/);

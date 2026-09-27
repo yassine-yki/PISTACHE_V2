@@ -265,14 +265,14 @@ do $upgrade$ begin
  execute $migration$alter table public.task_types add column hidden boolean not null default false;
 alter table public.task_types add column hidden_user_ids uuid[] not null default '{}';
 create function private.task_type_visible(p_id uuid) returns boolean language sql stable security definer set search_path='' as $$
- select coalesce((select private.project_role(project_id) = 'admin' or (private.project_role(project_id) is not null and not hidden and not (auth.uid() = any(hidden_user_ids))) from public.task_types where id=p_id),false)
+ select coalesce((select private.project_role(project_id) is not null and not (auth.uid() = any(hidden_user_ids)) and (private.project_role(project_id) = 'admin' or not hidden) from public.task_types where id=p_id),false)
 $$;
 create function private.task_visible(p_id uuid) returns boolean language sql stable security definer set search_path='' as $$
  select coalesce((select private.task_type_visible(task_type_id) from public.room_tasks where id=p_id),false)
 $$;
 grant execute on function private.task_type_visible(uuid), private.task_visible(uuid) to authenticated;
-create policy task_visibility on public.task_types as restrictive for select to authenticated using (private.project_role(project_id) = 'admin' or (not hidden and not (auth.uid() = any(hidden_user_ids))));
-create policy task_visibility on public.room_tasks as restrictive for select to authenticated using (private.project_role(project_id) = 'admin' or private.task_visible(id));
+create policy task_visibility on public.task_types as restrictive for select to authenticated using (private.project_role(project_id) is not null and not (auth.uid() = any(hidden_user_ids)) and (private.project_role(project_id) = 'admin' or not hidden));
+create policy task_visibility on public.room_tasks as restrictive for select to authenticated using (private.task_visible(id));
 create policy task_visibility on public.task_assignments as restrictive for select to authenticated using (private.task_visible(room_task_id));
 create policy task_visibility on public.progress_updates as restrictive for select to authenticated using (private.task_visible(room_task_id));
 create policy task_visibility on public.progress_photos as restrictive for select to authenticated using (exists(select 1 from public.progress_updates u where u.id=progress_update_id));
