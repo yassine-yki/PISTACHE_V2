@@ -10,6 +10,28 @@ const snapshot=():Snapshot=>({projectId:"p",name:"Projet",userId:"alice",role:"w
     {id:"t2",key:"201:bathroom:paint",version:2,record:record(),active:true}],
   assignments:[{id:"a1",room_task_id:"t1",assignee_id:"alice",ended_at:null},
     {id:"a2",room_task_id:"t2",assignee_id:"bob",ended_at:null}],members:[]});
+test("the production reset removes old cached progress and pending submissions",async()=>{
+  const namespace=crypto.randomUUID(),name="pistache-cloud:"+namespace;
+  const legacy=await new Promise<IDBDatabase>((resolve,reject)=>{
+    const request=indexedDB.open(name,1);
+    request.onupgradeneeded=()=>{
+      request.result.createObjectStore("snapshots",{keyPath:"projectId"});
+      request.result.createObjectStore("operations",{keyPath:"id"});
+    };
+    request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+  });
+  await new Promise<void>((resolve,reject)=>{
+    const transaction=legacy.transaction(["snapshots","operations"],"readwrite");
+    transaction.objectStore("snapshots").put(snapshot());
+    transaction.objectStore("operations").put({id:"old-operation",projectId:"p"});
+    transaction.oncomplete=()=>resolve();transaction.onerror=()=>reject(transaction.error);
+  });
+  legacy.close();
+  const store=new OfflineStore(namespace);
+  assert.equal(await store.snapshot("p"),undefined);
+  assert.deepEqual(await store.all("operations"),[]);
+  await store.close();
+});
 test("only the assigned room task can be edited, even within the same chamber",()=>{
   const s=snapshot();
   assert.equal(editable(s,"alice","201:bedroom:paint"),true);

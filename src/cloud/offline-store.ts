@@ -3,10 +3,22 @@ export class OfflineStore {
   private database: Promise<IDBDatabase>;
   constructor(namespace: string) {
     this.database = new Promise((resolve, reject) => {
-      const request = indexedDB.open("pistache-cloud:" + namespace, 1);
-      request.onupgradeneeded = () => {
-        request.result.createObjectStore("snapshots", { keyPath: "projectId" });
-        request.result.createObjectStore("operations", { keyPath: "id" });
+      // Version 2 is a deliberate one-time reset of the test data kept on each
+      // device. Without it, an old offline draft can still be displayed after
+      // the server cleanup and may later be submitted again.
+      const request = indexedDB.open("pistache-cloud:" + namespace, 2);
+      request.onupgradeneeded = (event) => {
+        const database=request.result;
+        const snapshots=database.objectStoreNames.contains("snapshots")
+          ? request.transaction!.objectStore("snapshots")
+          : database.createObjectStore("snapshots", { keyPath: "projectId" });
+        const operations=database.objectStoreNames.contains("operations")
+          ? request.transaction!.objectStore("operations")
+          : database.createObjectStore("operations", { keyPath: "id" });
+        if ((event as IDBVersionChangeEvent).oldVersion === 1) {
+          snapshots.clear();
+          operations.clear();
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
