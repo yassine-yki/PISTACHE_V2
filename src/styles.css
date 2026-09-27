@@ -40,6 +40,10 @@ body { --green: #426b39; --green-dark: #31512c; --surface-soft: #f3f5ef; }
 .profile-metadata div { display: grid; grid-template-columns: 125px minmax(0,1fr); gap: 14px; font-size: 14px; }
 .profile-metadata dt { color: var(--muted); }
 .profile-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.profile-scope-summary { margin:0; line-height:1.45; }
+.profile-scope-list { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.profile-scope-list li { display:grid; gap:2px; padding:9px 10px; border:1px solid var(--line); border-radius:7px; background:var(--surface-soft); }
+.profile-scope-list span { color:var(--muted); font-size:12px; }
 #adminCodeForm { display: grid; gap: 12px; padding-top: 18px; border-top: 1px solid var(--line); }
 .admin-navigation { display: flex; gap: 7px; padding: 10px 22px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .admin-navigation button { padding: 8px 14px; border: 0; background: transparent; font-size: 14px; }

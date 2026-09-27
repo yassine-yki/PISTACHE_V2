@@ -1265,9 +1265,44 @@ document.querySelector("#adminNavigation").onclick=async(event)=>{
   try{await renderAdminPage();if(adminPage==="dashboard")requestAnimationFrame(fitPlan);}
   catch(error){document.querySelector("#saveStatus").textContent=error.message;}
 };
+function profileResponsibilityHtml() {
+  if(currentUser?.role==="admin")return '<p class="profile-scope-summary">Accès complet à tous les étages, blocs, chambres et tâches du projet.</p>';
+  if(currentUser?.role==="viewer")return '<p class="profile-scope-summary">Consultation du projet uniquement.</p>';
+  const snapshot=cloud?.snapshot;
+  if(!snapshot)return '<p class="profile-scope-summary">Aucune zone affectée pour le moment.</p>';
+  const taskById=new Map(snapshot.tasks.map(task=>[task.id,task]));
+  const assignedByScope=new Map();
+  const totalByScope=new Map();
+  const scopeDetails=new Map();
+  for(const task of snapshot.tasks.filter(task=>task.active)) {
+    const roomNumber=Number(task.key.split(":",1)[0]);
+    const floorCode=task.floorCode || CURRENT_FLOOR;
+    const blockCode=(ROOMS_BY_FLOOR[floorCode] || []).find(room=>room.number===roomNumber)?.blockId || "—";
+    const scopeKey=floorCode+":"+blockCode;
+    totalByScope.set(scopeKey,(totalByScope.get(scopeKey)||0)+1);
+    scopeDetails.set(scopeKey,{floorCode,blockCode});
+  }
+  for(const assignment of snapshot.assignments) {
+    if(assignment.ended_at || assignment.assignee_id!==cloud.user.id)continue;
+    const task=taskById.get(assignment.room_task_id);if(!task?.active)continue;
+    const roomNumber=Number(task.key.split(":",1)[0]);
+    const floorCode=task.floorCode || CURRENT_FLOOR;
+    const blockCode=(ROOMS_BY_FLOOR[floorCode] || []).find(room=>room.number===roomNumber)?.blockId || "—";
+    const scopeKey=floorCode+":"+blockCode;
+    assignedByScope.set(scopeKey,(assignedByScope.get(scopeKey)||0)+1);
+    scopeDetails.set(scopeKey,{floorCode,blockCode});
+  }
+  if(!assignedByScope.size)return '<p class="profile-scope-summary">Aucune zone affectée pour le moment.</p>';
+  const floorLabels=new Map((PROJECT_CATALOG[0].floors || []).map(floor=>[floor.id,floor.label]));
+  const rows=[...assignedByScope].map(([key,count])=>{
+    const scope=scopeDetails.get(key);const total=totalByScope.get(key)||0;
+    return {...scope,count,total,label:floorLabels.get(scope.floorCode)||scope.floorCode.toUpperCase()};
+  }).sort((a,b)=>a.label.localeCompare(b.label,"fr",{numeric:true})||a.blockCode.localeCompare(b.blockCode,"fr"));
+  return '<ul class="profile-scope-list">'+rows.map(scope=>'<li><strong>'+escapeSvgText(scope.label)+' — Bloc '+escapeSvgText(scope.blockCode)+'</strong><span>'+(scope.count===scope.total?'Responsabilité complète':scope.count+' tâche'+(scope.count>1?'s':'')+' affectée'+(scope.count>1?'s':''))+'</span></li>').join("")+'</ul>';
+}
 document.querySelector("#profileButton").onclick=()=>{
   const user=cloud.user;
-  document.querySelector("#profileMetadata").innerHTML='<dt>Nom</dt><dd>'+escapeSvgText(user.user_metadata?.display_name || user.email || "")+'</dd><dt>Identifiant à communiquer à votre administrateur</dt><dd>'+escapeSvgText(user.id)+'</dd><dt>Rôle dans ce projet</dt><dd>'+escapeSvgText(currentUser.role)+'</dd>';
+  document.querySelector("#profileMetadata").innerHTML='<dt>Nom</dt><dd>'+escapeSvgText(user.user_metadata?.display_name || user.email || "")+'</dd><dt>Responsabilités</dt><dd>'+profileResponsibilityHtml()+'</dd>';
   document.querySelector("#profileDialog").showModal();
 };
 document.querySelector("#closeProfile").onclick=()=>document.querySelector("#profileDialog").close();
