@@ -1266,7 +1266,11 @@ async function renderAdminPage() {
     const list=document.querySelector("#activityList");
     list.innerHTML='<p class="empty-state">Chargement de l’activité…</p>';
     const history=await cloud.history();
-    list.innerHTML=history.map(item=>{
+    const days=new Map();
+    for(const item of history) {
+      const createdAt=new Date(item.created_at);
+      const dayKey=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca",year:"numeric",month:"2-digit",day:"2-digit"}).format(createdAt);
+      if(!days.has(dayKey))days.set(dayKey,{label:new Intl.DateTimeFormat("fr-FR",{timeZone:"Africa/Casablanca",weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(createdAt),items:[]});
       const task=cloud.snapshot.tasks.find(t=>t.id===item.room_task_id);
       const member=cloud.snapshot.members.find(m=>m.user_id===item.changed_by);
       const [roomNumber,zone,code]=(task?.key || "").split(":");
@@ -1277,9 +1281,10 @@ async function renderAdminPage() {
       const zoneLabel=zone==="bathroom" ? "Salle de bain" : zone==="bedroom" ? "Chambre" : "Loggia";
       const floorLabel=(activeProjectDefinition?.floors || []).find(floor=>floor.id===task?.floorCode)?.label || task?.floorCode?.toUpperCase() || "";
       const changes=activityChanges(item.before_state,item.after_state);
-      const date=new Date(item.created_at).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});
-      return '<article class="activity-item"><header><strong>Chambre '+escapeSvgText(roomNumber || "—")+'</strong><span>'+escapeSvgText([floorLabel,zoneLabel].filter(Boolean).join(" · "))+'</span></header><dl><div><dt>Tâche</dt><dd>'+escapeSvgText(group)+'</dd></div><div><dt>Sous-tâche</dt><dd>'+escapeSvgText(subtask)+'</dd></div></dl><div class="activity-changes"><b>Saisie</b>'+changes.map(change=>'<span>'+escapeSvgText(change)+'</span>').join('')+'</div><footer><span>'+escapeSvgText(member?.name || "Import")+'</span><time datetime="'+escapeSvgText(item.created_at)+'">'+escapeSvgText(date)+'</time></footer></article>';
-    }).join("") || '<p class="empty-state">Aucune modification enregistrée.</p>';
+      const time=new Intl.DateTimeFormat("fr-FR",{timeZone:"Africa/Casablanca",hour:"2-digit",minute:"2-digit"}).format(createdAt);
+      days.get(dayKey).items.push('<article class="activity-item"><header><strong>Chambre '+escapeSvgText(roomNumber || "—")+'</strong><span>'+escapeSvgText([floorLabel,zoneLabel].filter(Boolean).join(" · "))+'</span></header><dl><div><dt>Tâche</dt><dd>'+escapeSvgText(group)+'</dd></div><div><dt>Sous-tâche</dt><dd>'+escapeSvgText(subtask)+'</dd></div></dl><div class="activity-changes"><b>Saisie</b>'+changes.map(change=>'<span>'+escapeSvgText(change)+'</span>').join('')+'</div><footer><span>'+escapeSvgText(member?.name || "Import")+'</span><time datetime="'+escapeSvgText(item.created_at)+'">'+escapeSvgText(time)+'</time></footer></article>');
+    }
+    list.innerHTML=days.size ? [...days].map(([day,{label,items}],index)=>'<details class="activity-day" data-activity-day="'+escapeSvgText(day)+'" '+(index===0?'open':'')+'><summary><strong>'+escapeSvgText(label)+'</strong><span>'+items.length+' changement'+(items.length>1?'s':'')+'</span></summary><div class="activity-day-grid">'+items.join('')+'</div></details>').join('') : '<p class="empty-state">Aucune modification enregistrée.</p>';
   }
 }
 document.querySelector("#assignmentForm").onsubmit=async(event)=>{

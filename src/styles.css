@@ -63,7 +63,12 @@ body { --green: #426b39; --green-dark: #31512c; --surface-soft: #f3f5ef; }
 #teamMessage.success, #assignmentMessage.success { color: var(--green-dark); }
 #assignmentMessage { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
 #assignmentMessage:empty { display: none; }
-.activity-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr)); gap:8px; align-items:start; }
+.activity-list { display:grid; gap:8px; }
+.activity-day { border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.38); overflow:hidden; }
+.activity-day > summary { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 12px; cursor:pointer; list-style-position:inside; text-transform:capitalize; }
+.activity-day > summary span { color:var(--muted); font-size:12px; font-weight:600; text-transform:none; }
+.activity-day[open] > summary { border-bottom:1px solid var(--line); background:var(--surface); }
+.activity-day-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr)); gap:8px; padding:8px; align-items:start; }
 .activity-item { display:grid; gap:7px; min-width:0; background:var(--surface); padding:11px 12px; border:1px solid var(--line); border-radius:8px; }
 .activity-item header,.activity-item footer { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
 .activity-item header strong { font-size:15px; }
