@@ -6,9 +6,9 @@ import ts from 'typescript';
 import {webcrypto} from 'node:crypto';
 const source=readFileSync(new URL('../supabase/functions/accept-invitation/index.ts',import.meta.url),'utf8').replace(/^import .*;\r?\n/,'');
 const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
-function setup(inv={expires_at:new Date(Date.now()+60000).toISOString(),used_at:null,revoked_at:null}){
+function setup(inv={expires_at:new Date(Date.now()+60000).toISOString(),used_at:null,revoked_at:null},creationError=null){
  let handler,created;
- const admin={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:inv})})})}),auth:{admin:{createUser:async args=>{created=args;return {error:null};}}}};
+ const admin={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:inv})})})}),auth:{admin:{createUser:async args=>{created=args;return {error:creationError};}}}};
  vm.runInNewContext(code,{Deno:{env:{get:()=> 'server-only'},serve:fn=>{handler=fn;}},createClient:()=>admin,Response,Request,TextEncoder,crypto:webcrypto});
  return {send:body=>handler(new Request('https://test.invalid',{method:'POST',body:JSON.stringify(body)})),created:()=>created};
 }
@@ -20,4 +20,12 @@ test('invitation endpoint creates a confirmed username account with protected in
 test('used invitations and malformed credentials never create an account',async()=>{
  const used=setup({used_at:'today'});assert.equal((await used.send({token:'a'.repeat(64),username:'person',password:'password123'})).status,400);assert.equal(used.created(),undefined);
  const invalid=setup();assert.equal((await invalid.send({token:'bad',username:'person',password:'password123'})).status,400);assert.equal(invalid.created(),undefined);
+});
+test('creation errors explain that the invitation remains reusable',async()=>{
+ const duplicate=setup(undefined,{code:'email_exists',message:'A user with this email has already been registered'});
+ const duplicateResponse=await duplicate.send({token:'a'.repeat(64),username:'person',password:'password123'});
+ assert.equal(duplicateResponse.status,409);assert.match((await duplicateResponse.json()).error,/lien d.invitation reste valide/i);
+ const weak=setup(undefined,{code:'weak_password',message:'Password is too weak'});
+ const weakResponse=await weak.send({token:'a'.repeat(64),username:'person',password:'password123'});
+ assert.equal(weakResponse.status,400);assert.match((await weakResponse.json()).error,/mot de passe/i);
 });

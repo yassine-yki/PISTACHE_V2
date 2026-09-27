@@ -1295,10 +1295,17 @@ function setRegistrationMode() {
   document.querySelector("#guestModeDescription").hidden=registrationMode;
 }
 document.querySelector("#loginForm").onsubmit=async(event)=>{
-  event.preventDefault();const button=document.querySelector("#loginSubmit");button.disabled=true;
+  event.preventDefault();const button=document.querySelector("#loginSubmit");
   const identifier=document.querySelector("#loginEmail").value.trim();
   const password=document.querySelector("#loginPassword").value;
-  document.querySelector("#loginError").hidden=true;
+  const loginError=document.querySelector("#loginError");
+  loginError.hidden=true;
+  if(registrationMode&&password.length<8) {
+    loginError.textContent="Le mot de passe doit contenir au moins 8 caractères. Le lien d’invitation reste valide.";
+    loginError.hidden=false;
+    return;
+  }
+  button.disabled=true;
   button.textContent=registrationMode?"Création en cours…":"Connexion en cours…";
   try {
     if(registrationMode) {
