@@ -80,8 +80,9 @@ test("round-trips a backup and rejects malformed files", () => {
 test("the task catalogue matches the R+2 workbook structure", () => {
   assert.equal(tasksByZone.bathroom.length, 35);
   assert.equal(tasksByZone.bedroom.length, 33);
-  assert.deepEqual(tasksByZone.loggia.map((task) => task.label), ["Pose faux cadres", "Pose menuiserie"]);
-  assert.deepEqual(tasksByZone.loggia.map((task) => task.sourceColumn), ["BU", "BV"]);
+  assert.deepEqual(tasksByZone.bedroom.slice(-2).map((task) => task.label), ["Pose faux cadres", "Pose menuiserie"]);
+  assert.deepEqual(tasksByZone.bedroom.slice(-2).map((task) => task.sourceColumn), ["BS", "BT"]);
+  assert.equal(tasksByZone.loggia.length, 0);
 });
 
 test("completed tasks and decreases require an authorized correction", () => {

@@ -206,13 +206,13 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     await reject('delete from public.sync_operations', [], /history_is_immutable/);
     await reject('insert into public.task_assignments(project_id,room_task_id,assignee_id,assigned_by) values ($1,$2,$3,$4)', [otherProject, task, admin, admin], /foreign key/);
   });
-  await t.test('Mixed Use setup creates 40 rooms, 70 types and 2800 independent tasks', async () => {
+  await t.test('Mixed Use setup creates 40 rooms, 68 types and 2720 independent tasks', async () => {
     await login(admin);
     const seeded=(await first('select public.create_mixed_use_project() as id')).id;
     assert.equal((await query('select * from public.rooms where project_id=$1',[seeded])).length,40);
-    assert.equal((await query('select * from public.task_types where project_id=$1',[seeded])).length,70);
+    assert.equal((await query('select * from public.task_types where project_id=$1',[seeded])).length,68);
     const tasks=await query('select * from public.room_tasks where project_id=$1',[seeded]);
-    assert.equal(tasks.length,2800);
+    assert.equal(tasks.length,2720);
     assert.ok(tasks.every(t=>t.progress===0));
     await query('select public.set_project_member($1,$2,$3,$4)',[seeded,worker,'worker','active']);
     await query('select public.set_project_member($1,$2,$3,$4)',[seeded,outsider,'worker','active']);
