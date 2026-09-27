@@ -1,4 +1,4 @@
-const CACHE="pistache-shell-de49b6c81c626431";
+const CACHE="pistache-shell-89f1eb5b627ecc95";
 const PLAN_CACHE='pistache-plans-v1';
 const FILES=["/index.html","/favicon.svg","/vendor/dxf-parser.js","/assets/index-CDVKVY2m.css","/assets/index-MULQujX8.js"];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
