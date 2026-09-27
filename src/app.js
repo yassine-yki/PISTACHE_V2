@@ -1178,12 +1178,18 @@ async function renderAdminPage() {
     const list=document.querySelector("#taskManagementList");
     list.innerHTML=[...groups].map(([title,types])=>{
       const people=cloud.snapshot.members.filter(m=>m.role!=='admin');
-      const controls='<div class="task-group-controls"><label><input type="checkbox" data-group-hidden> Masquer tout le groupe pour le projet</label><details><summary>Masquer le groupe pour certaines personnes</summary>'+people.map(m=>'<label class="task-member-option"><input type="checkbox" data-group-user="'+m.user_id+'"> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="button" class="button primary" data-save-group>Enregistrer le groupe</button><p role="status" data-group-status></p></div>';
-      return '<details class="management-group"><summary><strong>'+escapeSvgText(title)+'</strong><span>'+types.length+' tâches</span></summary>'+controls+types.map(type=>
-        '<div class="management-task"><form class="task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><div class="task-visibility-row"><input class="task-inline-label" aria-label="Intitulé de la tâche" name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"><fieldset class="task-on-off"><legend class="sr-only">Visibilité de la tâche</legend><label><input type="radio" name="visibility" value="on" '+(!type.hidden?'checked':'')+'> ON</label><label><input type="radio" name="visibility" value="off" '+(type.hidden?'checked':'')+'> OFF</label></fieldset><input type="checkbox" name="hidden" hidden '+(type.hidden?'checked':'')+'></div><fieldset class="task-off-people"><legend>OFF pour :</legend>'+people.map(m=>'<label class="task-person-chip"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+((type.hidden_user_ids || []).includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+(people.length?'':'<span class="access-hint">Aucun intervenant ou visiteur dans le projet.</span>')+'</fieldset><div class="task-save-row"><small data-task-visibility></small><button type="submit" class="button secondary">Enregistrer</button></div><p role="status"></p></form></div>'
+      const hiddenCount=types.filter(type=>type.hidden).length;
+      const personalCount=types.filter(type=>(type.hidden_user_ids || []).length).length;
+      const summary=[types.length+' tâches',hiddenCount?hiddenCount+' OFF':'',personalCount?personalCount+' ciblée'+(personalCount>1?'s':''):''].filter(Boolean).join(' · ');
+      const controls='<details class="task-group-bulk"><summary>Réglages pour tout le groupe</summary><div class="task-group-controls"><label><input type="checkbox" data-group-hidden> Masquer tout le groupe pour le projet</label><details><summary>Choisir les personnes exclues du groupe</summary>'+people.map(m=>'<label class="task-member-option"><input type="checkbox" data-group-user="'+m.user_id+'"> '+escapeSvgText(m.name)+'</label>').join('')+'</details><button type="button" class="button primary" data-save-group>Enregistrer le groupe</button><p role="status" data-group-status></p></div></details>';
+      return '<details class="management-group"><summary><strong>'+escapeSvgText(title)+'</strong><span data-group-summary>'+summary+'</span></summary>'+controls+types.map(type=>{
+        const hiddenUsers=type.hidden_user_ids || [];
+        return '<div class="management-task"><form class="task-management-form" data-type-id="'+escapeSvgText(type.id)+'"><div class="task-visibility-row"><input class="task-inline-label" aria-label="Intitulé de la tâche" name="label" required maxlength="200" value="'+escapeSvgText(type.label)+'"><fieldset class="task-on-off"><legend class="sr-only">Visibilité de la tâche</legend><label><input type="radio" name="visibility" value="on" '+(!type.hidden?'checked':'')+'> ON</label><label><input type="radio" name="visibility" value="off" '+(type.hidden?'checked':'')+'> OFF</label></fieldset><input type="checkbox" name="hidden" hidden '+(type.hidden?'checked':'')+'><button type="submit" class="button secondary task-save-button">Enregistrer</button></div><div class="task-compact-status"><small data-task-visibility></small><p role="status"></p></div><details class="task-people-details"><summary>OFF pour certains utilisateurs <span data-hidden-user-count>'+hiddenUsers.length+'</span></summary><fieldset class="task-off-people"><legend class="sr-only">Utilisateurs qui ne voient pas cette tâche</legend>'+people.map(m=>'<label class="task-person-chip"><input type="checkbox" name="hiddenUser" value="'+m.user_id+'" '+(hiddenUsers.includes(m.user_id)?'checked':'')+'> '+escapeSvgText(m.name)+'</label>').join('')+(people.length?'':'<span class="access-hint">Aucun intervenant ou visiteur dans le projet.</span>')+'</fieldset></details></form></div>';
+      }
       ).join('')+'</details>';
     }).join('');
     list.querySelectorAll('.management-group').forEach(updateManagementGroup);
+    filterTaskManagement();
   } else if(adminPage==="team") {
     void renderInvitations();
     const snapshot=cloud.snapshot;
@@ -1443,6 +1449,28 @@ document.querySelector("#cancelProgress").onclick=async()=>{
   finally{saving=false;document.querySelector("#confirmProgress").disabled=false;document.querySelector("#cancelProgress").disabled=false;renderEditor();}
 };
 
+function filterTaskManagement() {
+  const list=document.querySelector('#taskManagementList');
+  if(!list)return;
+  const search=(document.querySelector('#taskManagementSearch')?.value||'').trim().toLocaleLowerCase('fr');
+  const filter=document.querySelector('#taskManagementFilter')?.value||'all';
+  list.querySelectorAll('.management-group').forEach(group=>{
+    const groupMatches=(group.querySelector(':scope > summary strong')?.textContent||'').toLocaleLowerCase('fr').includes(search);
+    let visibleCount=0;
+    group.querySelectorAll('.management-task').forEach(task=>{
+      const form=task.querySelector('.task-management-form');
+      const hidden=form.elements.hidden.checked;
+      const personal=!!form.querySelector('[name="hiddenUser"]:checked');
+      const label=form.elements.label.value.toLocaleLowerCase('fr');
+      const matchesSearch=!search||groupMatches||label.includes(search);
+      const matchesFilter=filter==='all'||(filter==='visible'&&!hidden)||(filter==='hidden'&&hidden)||(filter==='people'&&personal);
+      task.hidden=!(matchesSearch&&matchesFilter);
+      if(!task.hidden)visibleCount++;
+    });
+    group.hidden=visibleCount===0;
+  });
+}
+
 document.querySelector("#taskManagementList").addEventListener("submit",async event=>{
   event.preventDefault();
   const form=event.target.closest(".task-management-form");if(!form)return;
@@ -1452,7 +1480,7 @@ document.querySelector("#taskManagementList").addEventListener("submit",async ev
     await cloud.manageTaskType(form.dataset.typeId,form.elements.label.value,form.elements.hidden.checked,[...form.querySelectorAll('[name="hiddenUser"]:checked')].map(input=>input.value));
     status.textContent="Modifications enregistrées.";
 
-    updateManagementGroup(form.closest(".management-group"));render();
+    updateManagementGroup(form.closest(".management-group"));filterTaskManagement();render();
   }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
 });
 
@@ -1461,19 +1489,49 @@ function updateManagementGroup(group) {
   const set=(control,values)=>{control.checked=values.every(Boolean);control.indeterminate=values.some(Boolean)&&!control.checked;};
   set(group.querySelector('[data-group-hidden]'),forms.map(f=>f.elements.hidden.checked));
   group.querySelectorAll('[data-group-user]').forEach(control=>set(control,forms.map(f=>[...f.querySelectorAll('[name="hiddenUser"]')].find(input=>input.value===control.dataset.groupUser)?.checked)));
-  forms.forEach(f=>{f.querySelector('[name="visibility"][value="on"]').checked=!f.elements.hidden.checked;f.querySelector('[name="visibility"][value="off"]').checked=f.elements.hidden.checked;f.closest('.management-task').querySelector('[data-task-visibility]').textContent=f.elements.hidden.checked?'Masquée pour le projet':f.querySelector('[name="hiddenUser"]:checked')?'Masquée pour certaines personnes':'Visible';});
+  forms.forEach(f=>{
+    const personal=f.querySelectorAll('[name="hiddenUser"]:checked').length;
+    f.querySelector('[name="visibility"][value="on"]').checked=!f.elements.hidden.checked;
+    f.querySelector('[name="visibility"][value="off"]').checked=f.elements.hidden.checked;
+    f.querySelector('[data-hidden-user-count]').textContent=personal;
+    f.querySelector('[data-task-visibility]').textContent=f.elements.hidden.checked?'Masquée pour le projet':personal?'Masquée pour '+personal+' personne'+(personal>1?'s':''):'Visible';
+  });
+  const hidden=forms.filter(f=>f.elements.hidden.checked).length;
+  const personal=forms.filter(f=>f.querySelector('[name="hiddenUser"]:checked')).length;
+  group.querySelector('[data-group-summary]').textContent=forms.length+' tâche'+(forms.length>1?'s':'')+(hidden?' · '+hidden+' OFF':'')+(personal?' · '+personal+' ciblée'+(personal>1?'s':''):'');
 }
 document.querySelector('#taskManagementList').addEventListener('change',event=>{
   const group=event.target.closest('.management-group');if(!group)return;
   if(event.target.matches('[name="visibility"]')) event.target.closest('form').elements.hidden.checked=event.target.value==='off';
-  if(event.target.matches('[data-group-hidden],[data-group-user]')) {
+  const groupChange=event.target.matches('[data-group-hidden],[data-group-user]');
+  if(groupChange) {
     group.querySelectorAll('.task-management-form').forEach(form=>{
       const input=event.target.matches('[data-group-hidden]')?form.elements.hidden:[...form.querySelectorAll('[name="hiddenUser"]')].find(input=>input.value===event.target.dataset.groupUser);
       if(input)input.checked=event.target.checked;
     });
   }
   updateManagementGroup(group);
-  group.querySelector('[data-group-status]').textContent='Modifications à enregistrer.';
+  if(groupChange)group.querySelector('[data-group-status]').textContent='Modifications à enregistrer.';
+  else {
+    const status=event.target.closest('form')?.querySelector('[role="status"]');
+    if(status)status.textContent='À enregistrer.';
+  }
+  filterTaskManagement();
+});
+document.querySelector('#taskManagementList').addEventListener('input',event=>{
+  if(!event.target.matches('[name="label"]'))return;
+  const status=event.target.closest('form').querySelector('[role="status"]');
+  status.textContent='À enregistrer.';
+  filterTaskManagement();
+});
+document.querySelector('#taskManagementList').addEventListener('toggle',event=>{
+  if(!event.target.matches('.management-group')||!event.target.open)return;
+  document.querySelectorAll('#taskManagementList > .management-group[open]').forEach(group=>{if(group!==event.target)group.open=false;});
+},true);
+document.querySelector('#taskManagementSearch').addEventListener('input',filterTaskManagement);
+document.querySelector('#taskManagementFilter').addEventListener('change',filterTaskManagement);
+document.querySelector('#collapseTaskGroups').addEventListener('click',()=>{
+  document.querySelectorAll('#taskManagementList details[open]').forEach(details=>details.open=false);
 });
 document.querySelector('#taskManagementList').addEventListener('click',async event=>{
   const button=event.target.closest('[data-save-group]');if(!button)return;
@@ -1492,7 +1550,7 @@ document.querySelector('#taskManagementList').addEventListener('click',async eve
 
       saved++;
     }
-    status.textContent=saved+' tâches enregistrées.';render();
+    status.textContent=saved+' tâches enregistrées.';filterTaskManagement();render();
   }catch(error){status.textContent=saved+' tâches enregistrées. '+error.message+' Vous pouvez réessayer pour terminer.';}
   finally{controls.forEach(c=>c.disabled=false);updateManagementGroup(group);}
 });
