@@ -271,7 +271,7 @@ create function private.task_visible(p_id uuid) returns boolean language sql sta
  select coalesce((select private.task_type_visible(task_type_id) from public.room_tasks where id=p_id),false)
 $$;
 grant execute on function private.task_type_visible(uuid), private.task_visible(uuid) to authenticated;
-create policy task_visibility on public.task_types as restrictive for select to authenticated using (private.project_role(project_id) is not null and not (auth.uid() = any(hidden_user_ids)) and (private.project_role(project_id) = 'admin' or not hidden));
+create policy task_visibility on public.task_types as restrictive for select to authenticated using (private.project_role(project_id) = 'admin' or (private.project_role(project_id) is not null and not hidden and not (auth.uid() = any(hidden_user_ids))));
 create policy task_visibility on public.room_tasks as restrictive for select to authenticated using (private.task_visible(id));
 create policy task_visibility on public.task_assignments as restrictive for select to authenticated using (private.task_visible(room_task_id));
 create policy task_visibility on public.progress_updates as restrictive for select to authenticated using (private.task_visible(room_task_id));

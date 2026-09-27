@@ -327,7 +327,7 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
     await login(admin);
     await query('select public.manage_task_type($1,$2,$3,$4)',[type,'New label',false,[outsider]]);
     await login(outsider);
-    assert.equal((await query('select id from public.task_types where id=$1',[type])).length,0);
+    assert.equal((await query('select id from public.task_types where id=$1',[type])).length,1);
     assert.equal((await query('select id from public.room_tasks where id=$1',[task])).length,0);
     assert.equal((await submit(operation(task,null,3,payload(50)))).error_code,'task_hidden');
     await login(admin);

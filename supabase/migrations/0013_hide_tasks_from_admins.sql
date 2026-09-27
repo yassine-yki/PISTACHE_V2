@@ -14,9 +14,10 @@ $$;
 drop policy if exists task_visibility on public.task_types;
 create policy task_visibility on public.task_types as restrictive for select to authenticated
 using (
-  private.project_role(project_id) is not null
-  and not (auth.uid() = any(hidden_user_ids))
-  and (private.project_role(project_id) = 'admin' or not hidden)
+  private.project_role(project_id) = 'admin'
+  or (private.project_role(project_id) is not null
+    and not hidden
+    and not (auth.uid() = any(hidden_user_ids)))
 );
 
 drop policy if exists task_visibility on public.room_tasks;
