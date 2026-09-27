@@ -39,6 +39,7 @@ function persistProject(key, correction = null, previousRecord = null) {
     } else {
       project=await cloud.enqueue(key,record,correction,previousRecord);
       state.records=currentFloorRecords();
+      state.records[key]={...(state.records[key] || {}),...record};
       await renderSync();
     }
   }).catch(error => {

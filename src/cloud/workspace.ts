@@ -141,8 +141,8 @@ export class CloudWorkspace {
   }
   async enqueue(key: string, record: any, correction: any, previousRecord?: any) {
     if (!this.snapshot) throw new Error("Aucun projet ouvert.");
-    const version = this.snapshot.tasks.find(t => t.key === key)?.version;
     return this.exclusive(async () => {
+      const version = this.snapshot!.tasks.find(t => t.key === key)?.version;
       await this.engine.enqueue(this.snapshot!.projectId,key,record,correction,previousRecord,version,true);
       return this.project();
     });
