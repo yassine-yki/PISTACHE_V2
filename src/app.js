@@ -1081,11 +1081,6 @@ function renderAccessShell() {
   document.querySelector("#draftActions").hidden=!accessReady || localMode || currentUser?.role==="viewer";
   document.querySelector("#sessionRole").textContent = localMode ? "Visiteur — lecture seule" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
   document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
-  const workerRooms=document.querySelector("#workerRooms");
-  workerRooms.hidden=localMode || admin || !accessReady;
-  if(!workerRooms.hidden) workerRooms.innerHTML=rooms.filter(r=>roomMatchesFilters(r.number)).map(r=>
-    '<button type="button" data-room="'+r.number+'" class="worker-room '+(r.number===state.selectedRoom?'active':'')+'"><strong>Chambre '+r.number+'</strong><span>Bloc '+r.blockId+'</span></button>'
-  ).join("") || '<p class="empty-state">Aucune tâche affectée pour le moment.</p>';
   if(!roomAccessible(state.selectedRoom)) { elements.roomTitle.textContent="En attente d'affectation"; elements.roomType.textContent=""; }
 }
 function showAppLoading(message="Chargement des données du chantier…") {
