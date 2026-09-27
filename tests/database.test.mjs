@@ -460,4 +460,15 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   assert.equal(after.updates,0);assert.equal(after.operations,0);assert.equal(after.dirty,0);
  });
 
+ await t.test('Excel hidden columns are applied only to the matching administrator',async()=>{
+  await db.exec('reset role');
+  await query("update public.profiles set display_name='Merini Yassine' where id=$1",[admin]);
+  await query("update public.task_types set source_column='E', hidden_user_ids='{}' where id=$1",[type]);
+  const visibleType=(await first(`insert into public.task_types(project_id,code,label,zone,source_column,hidden_user_ids)
+    values ($1,'visible-test','Visible','bathroom','K',$2) returning id`,[project,[admin]])).id;
+  await db.exec(await readFile(new URL('../supabase/migrations/0017_apply_excel_visibility_to_merini.sql',import.meta.url),'utf8'));
+  assert.deepEqual((await first('select hidden_user_ids from public.task_types where id=$1',[type])).hidden_user_ids,[admin]);
+  assert.deepEqual((await first('select hidden_user_ids from public.task_types where id=$1',[visibleType])).hidden_user_ids,[]);
+ });
+
 });
