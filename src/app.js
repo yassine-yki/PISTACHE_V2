@@ -1090,8 +1090,8 @@ function renderAccessShell() {
   document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
   document.querySelector("#adminTasks").hidden = !admin || adminPage !== "tasks" || localMode;
   document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
+  document.querySelector("#adminPhotos").hidden = !admin || adminPage !== "photos" || localMode;
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
-  document.querySelector("#projectPhotosButton").hidden = !accessReady || localMode;
   document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
   document.querySelector("#syncButton").hidden = !cloud;
   document.querySelector("#draftActions").hidden=!accessReady || localMode || currentUser?.role==="viewer";
@@ -1268,6 +1268,8 @@ async function renderAdminPage() {
         return '<label class="block-assignment"><input type="checkbox" name="assignmentBlock" value="'+b.id+'" '+(!taskIds.size?'disabled':'')+'><span>Bloc '+escapeSvgText(b.label)+'<small>'+escapeSvgText(people.join(', ')||'Non affecté')+' · '+taskIds.size+' tâches</small></span></label>';
       }).join('')+'</details>').join('');
     document.querySelector("#assignmentPerson").innerHTML='<option value="">Retirer les affectations</option>'+[...responsibleWorkers.values()].map(m=>'<option value="'+m.user_id+'">'+escapeSvgText(m.name)+'</option>').join('');
+  } else if(adminPage==="photos") {
+    await openProjectPhotos(cloud.snapshot, Object.fromEntries((activeProjectDefinition?.floors || []).map(floor => [floor.id, floor.label])));
   } else if(adminPage==="history") {
     const list=document.querySelector("#activityList");
     list.innerHTML='<p class="empty-state">Chargement de l’activité…</p>';
@@ -1795,7 +1797,3 @@ for (const [id, readOnly] of [["addTaskPhoto", false], ["viewTaskPhotos", true]]
     }, readOnly);
   });
 }
-document.querySelector("#projectPhotosButton").addEventListener("click", () => {
-  if (!cloud?.snapshot) return;
-  openProjectPhotos(cloud.snapshot, Object.fromEntries((activeProjectDefinition?.floors || []).map(floor => [floor.id, floor.label])));
-});

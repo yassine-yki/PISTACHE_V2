@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-title" content="Projet MUC" />
     <title>Projet MUC — Suivi du chantier</title>
     <link rel="icon" type="image/png" href="/muc-building.png" />
-    <script type="module" crossorigin src="/assets/index-DEDzRUyO.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DPurvCGl.css">
+    <script type="module" crossorigin src="/assets/index-D548SSoQ.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CDH9yex9.css">
   </head>
   <body>
     <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
@@ -50,9 +50,9 @@
         </div>
       </div>
       <span class="sr-only" id="importStatus" aria-live="polite"></span>
-      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="projectPhotosButton" hidden>Photos</button><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
+      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
-    <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button><span class="admin-exports"><button type="button" id="exportExcel">Exporter Excel</button><button type="button" id="exportDailyPdf">Exporter PDF journalier</button></span></nav>
+    <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button><button type="button" data-admin-page="photos">Photos</button><span class="admin-exports"><button type="button" id="exportExcel">Exporter Excel</button><button type="button" id="exportDailyPdf">Exporter PDF journalier</button></span></nav>
 
     <div class="app-loading" id="appLoading" role="status" aria-live="polite" hidden>
       <span class="app-loading-spinner" aria-hidden="true"></span>
@@ -241,6 +241,11 @@
       <div id="taskManagementList" class="task-management-list"></div><p id="taskManagementMessage" role="status" aria-live="polite"></p>
     </section>
     <section id="adminActivity" class="admin-page" aria-label="Historique du projet" hidden><div class="page-heading"><span class="eyebrow">Administration du projet</span><h2>Activité du chantier</h2><p>Avancements, corrections et changements d’affectation.</p></div><div id="activityList" class="activity-list"></div></section>
+    <section id="adminPhotos" class="admin-page" aria-label="Photos du chantier" hidden>
+      <div class="page-heading"><span class="eyebrow">Suivi photographique</span><h2>Photos du chantier</h2><p>Retrouvez chaque photo avec son étage, sa chambre, sa tâche et sa description.</p></div>
+      <div class="photo-library-filters"><label class="field">Type<select id="projectPhotoType"><option value="all">Tous les types</option><option value="issue">Problèmes à traiter</option><option value="obstruction">Encombrements</option><option value="followup">Suivi / informations</option></select></label><label class="field">Étage<select id="projectPhotoFloor"><option value="all">Tous les étages</option></select></label><label class="field">Recherche<input id="projectPhotoSearch" type="search" placeholder="Chambre, tâche, description…"></label></div>
+      <p id="projectPhotoStatus" role="status"></p><div id="projectPhotoGallery" class="project-photo-gallery"></div>
+    </section>
 
 <dialog id="syncDialog" class="project-dialog" aria-labelledby="syncTitle"><div class="access-form"><h2 id="syncTitle">Synchronisation</h2><p>Les saisies en attente restent sur cet appareil. Les modifications refusées demandent votre attention.</p><div id="syncProblems"></div><button type="button" id="retrySync" class="button primary">Synchroniser maintenant</button><button type="button" id="closeSync" class="button secondary">Fermer</button></div></dialog>
     <dialog id="taskPhotoDialog" class="project-dialog" aria-labelledby="taskPhotoTitle"><div class="access-form">
@@ -253,11 +258,6 @@
       <button class="button primary" type="submit" id="publishTaskPhoto">Confirmer et partager la photo</button></form>
       <p id="taskPhotoStatus" role="status"></p><div id="taskPhotoGallery"></div>
       <button type="button" class="button secondary" id="closeTaskPhotos">Fermer</button>
-    </div></dialog>
-    <dialog id="projectPhotosDialog" class="project-dialog photo-library-dialog" aria-labelledby="projectPhotosTitle"><div class="access-form">
-      <div class="dialog-heading"><div><span class="eyebrow">Suivi photographique</span><h2 id="projectPhotosTitle">Photos du chantier</h2></div><button type="button" class="button secondary" id="closeProjectPhotos">Fermer</button></div>
-      <div class="photo-library-filters"><label class="field">Type<select id="projectPhotoType"><option value="all">Tous les types</option><option value="issue">Problèmes à traiter</option><option value="obstruction">Encombrements</option><option value="followup">Suivi / informations</option></select></label><label class="field">Étage<select id="projectPhotoFloor"><option value="all">Tous les étages</option></select></label><label class="field">Recherche<input id="projectPhotoSearch" type="search" placeholder="Chambre, tâche, description…"></label></div>
-      <p id="projectPhotoStatus" role="status"></p><div id="projectPhotoGallery" class="project-photo-gallery"></div>
     </div></dialog>
     <script src="/vendor/dxf-parser.js"></script>
   </body>

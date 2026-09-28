@@ -114,7 +114,6 @@ export async function openProjectPhotos(snapshot: Snapshot, floorLabels: Record<
   floorSelect.replaceChildren(new Option("Tous les étages", "all"), ...Object.entries(floorLabels).map(([value, label]) => new Option(label, value)));
   floorSelect.value = "all";
   el("projectPhotoGallery").replaceChildren(); el("projectPhotoStatus").textContent = "Chargement des photos…";
-  el<HTMLDialogElement>("projectPhotosDialog").showModal();
   const { data, error } = await client.from("task_photos").select("*").eq("project_id", snapshot.projectId).order("created_at", { ascending: false });
   if (error) { el("projectPhotoStatus").textContent = errorMessage(error); return; }
   projectRows = (data || []) as PhotoRow[];
@@ -190,7 +189,6 @@ el("taskPhotoForm").addEventListener("submit", async event => {
   } finally { busy = false; controls.forEach(control => control.disabled = false); }
 });
 
-el("closeProjectPhotos").addEventListener("click", () => el<HTMLDialogElement>("projectPhotosDialog").close());
 for (const id of ["projectPhotoType", "projectPhotoFloor", "projectPhotoSearch"])
   el(id).addEventListener(id === "projectPhotoSearch" ? "input" : "change", () => void renderProjectGallery());
 
