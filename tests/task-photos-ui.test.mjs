@@ -18,9 +18,9 @@ function harness({role="admin",assigned=false,insertError=false,uploadError=fals
   addEventListener(name,handler){this.handlers[name]=handler;}
   append(...items){this.children.push(...items);}
   replaceChildren(...items){this.children=items;}
-  reset(){get("taskPhotoFile").files=[];get("taskPhotoCaption").value="";get("taskPhotoReview").checked=false;}
+  reset(){get("taskPhotoFile").files=[];get("taskPhotoCaption").value="";}
   showModal(){this.open=true;} close(){this.open=false;this.handlers.close?.();}
-  querySelectorAll(){return [get("taskPhotoFile"),get("taskPhotoCaption"),get("taskPhotoReview"),get("publishTaskPhoto"),get("closeTaskPhotos")];}
+  querySelectorAll(){return [get("taskPhotoFile"),get("taskPhotoCaption"),get("publishTaskPhoto"),get("closeTaskPhotos")];}
  }
  const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
  const document={getElementById:get,createElement(tag){
@@ -51,15 +51,14 @@ function harness({role="admin",assigned=false,insertError=false,uploadError=fals
  return {get,events,rows,context,open:exports.openTaskPhotos,submit:()=>get("taskPhotoForm").handlers.submit({preventDefault(){}})};
 }
 
-test("review photo publishes captured task, caption and review flag, then refreshes gallery",async()=>{
- const h=harness();await h.open(h.context,true);
- assert.equal(h.get("taskPhotoReview").checked,true);
+test("photo publishes captured task and caption, then refreshes gallery",async()=>{
+ const h=harness();await h.open(h.context);
  h.get("taskPhotoFile").files=[{type:"image/png"}];
  h.get("taskPhotoCaption").value="<script>test</script>";
  await h.submit();
  assert.deepEqual(h.events.map(e=>e[0]),["upload","insert"]);
  const row=h.rows[0];
- assert.equal(row.room_task_id,"task");assert.equal(row.needs_review,true);
+ assert.equal(row.room_task_id,"task");assert.equal(row.needs_review,false);
  assert.equal(row.caption,"<script>test</script>");
  assert.equal("progress" in row,false);
  assert.equal(h.get("taskPhotoGallery").children.length,1);
@@ -70,7 +69,7 @@ test("review photo publishes captured task, caption and review flag, then refres
 
 test("ordinary photo and assigned worker are supported; viewers and unassigned workers cannot send",async()=>{
  for(const [role,assigned,allowed] of [["worker",true,true],["worker",false,false],["viewer",true,false]]) {
-  const h=harness({role,assigned});await h.open(h.context);
+  const h=harness({role,assigned});await h.open(h.context, false);
   assert.equal(h.get("taskPhotoForm").hidden,!allowed);
   h.get("taskPhotoFile").files=[{type:"image/jpeg"}];await h.submit();
   assert.equal(h.rows.length,allowed?1:0);
@@ -79,7 +78,7 @@ test("ordinary photo and assigned worker are supported; viewers and unassigned w
 });
 
 test("failed upload keeps the file for retry and never inserts metadata",async()=>{
- const h=harness({uploadError:true});await h.open(h.context,true);
+ const h=harness({uploadError:true});await h.open(h.context);
  h.get("taskPhotoFile").files=[{type:"image/jpeg"}];await h.submit();
  assert.deepEqual(h.events.map(e=>e[0]),["upload"]);
  assert.equal(h.get("taskPhotoFile").files.length,1);
@@ -88,7 +87,7 @@ test("failed upload keeps the file for retry and never inserts metadata",async()
 });
 
 test("failed metadata insert cleans up the orphan upload and preserves the selected photo",async()=>{
- const h=harness({insertError:true});await h.open(h.context,true);
+ const h=harness({insertError:true});await h.open(h.context);
  h.get("taskPhotoFile").files=[{type:"image/jpeg"}];await h.submit();
  assert.deepEqual(h.events.map(e=>e[0]),["upload","insert","cleanup"]);
  assert.equal(h.get("taskPhotoFile").files.length,1);

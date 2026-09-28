@@ -43,7 +43,7 @@ async function gallery(c: Context) {
   const cards = await Promise.all((data || []).map(async photo => {
     const card = document.createElement("article");
     const title = document.createElement("strong");
-    title.textContent = photo.needs_review ? "? À vérifier" : "Photo de suivi";
+    title.textContent = "Photo de suivi";
     const info = document.createElement("p");
     const author = c.snapshot.members.find(m => m.user_id === photo.uploaded_by)?.name || "Membre";
     info.textContent = author + " · " + new Date(photo.created_at).toLocaleString("fr-FR");
@@ -62,7 +62,7 @@ async function gallery(c: Context) {
   if (!cards.length) el("taskPhotoGallery").textContent = "Aucune photo pour cette sous-tâche.";
 }
 
-export async function openTaskPhotos(c: Context, review = false, readOnly = false) {
+export async function openTaskPhotos(c: Context, readOnly = false) {
   if (busy) return;
   context = c;
   el<HTMLFormElement>("taskPhotoForm").reset();
@@ -70,7 +70,6 @@ export async function openTaskPhotos(c: Context, review = false, readOnly = fals
   previewUrl = "";
   el<HTMLImageElement>("taskPhotoPreview").hidden = true;
   el("taskPhotoForm").hidden = readOnly || !editable(c.snapshot, c.userId, c.key);
-  el<HTMLInputElement>("taskPhotoReview").checked = review;
   el("taskPhotoContext").textContent = c.label;
   el("taskPhotoGallery").replaceChildren();
   status("Chargement des photos…");
@@ -100,7 +99,6 @@ el("taskPhotoForm").addEventListener("submit", async event => {
   const file = el<HTMLInputElement>("taskPhotoFile").files?.[0];
   if (busy || !client || !c || !file || !editable(c.snapshot, c.userId, c.key)) return;
   const task = c.snapshot.tasks.find(t => t.key === c.key)!;
-  const needsReview = el<HTMLInputElement>("taskPhotoReview").checked;
   const caption = el<HTMLTextAreaElement>("taskPhotoCaption").value.trim();
   busy = true;
   const controls = Array.from(dialog().querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLTextAreaElement>("input, button, textarea"));
@@ -114,7 +112,7 @@ el("taskPhotoForm").addEventListener("submit", async event => {
     if (uploaded.error) throw uploaded.error;
     const inserted = await client.from("task_photos").insert({
       id, project_id: c.snapshot.projectId, room_task_id: task.id, uploaded_by: c.userId,
-      storage_path: path, needs_review: needsReview, caption
+      storage_path: path, needs_review: false, caption
     });
     if (inserted.error) {
       await client.storage.from("task-photos").remove([path]);

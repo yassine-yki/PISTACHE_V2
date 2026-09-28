@@ -643,7 +643,6 @@ function renderEditor() {
   document.querySelector("#correctionNoteLabel").textContent=elements.correctionReason.value==="input-error" ? "Explication (facultative)" : "Explication (obligatoire)";
   elements.correctionNote.required=elements.correctionReason.value!=="input-error";
   const locked = !canEditSelectedRoom() || saving;
-  document.querySelector("#reviewPhoto").disabled = locked || !cloud;
   document.querySelector("#addTaskPhoto").disabled = locked || !cloud;
   document.querySelector("#viewTaskPhotos").disabled = !cloud;
   elements.taskLock.hidden = !locked;
@@ -1783,7 +1782,7 @@ document.querySelector('#invitationList').onclick=async event=>{
   catch(error){button.disabled=false;document.querySelector('#invitationMessage').textContent=error.message;}
 };
 
-for (const [id, review, readOnly] of [["reviewPhoto", true, false], ["addTaskPhoto", false, false], ["viewTaskPhotos", false, true]]) {
+for (const [id, readOnly] of [["addTaskPhoto", false], ["viewTaskPhotos", true]]) {
   document.getElementById(id).addEventListener("click", () => {
     if (!cloud || !currentUser) return;
     const task = currentTasks().find(item => item.id === state.selectedTask);
@@ -1792,6 +1791,6 @@ for (const [id, review, readOnly] of [["reviewPhoto", true, false], ["addTaskPho
       snapshot: cloud.snapshot, userId: cloud.snapshot.userId,
       key: state.selectedRoom + ":" + state.selectedZone + ":" + state.selectedTask,
       label: floorDefinition().label + " · Chambre " + state.selectedRoom + " · " + (state.selectedZone === "bedroom" ? "Chambre" : "Salle de bain") + " · " + task.label
-    }, review, readOnly);
+    }, readOnly);
   });
 }
