@@ -71,6 +71,20 @@ function requestFullCalculation(xml: string): string {
   });
 }
 
+function removeCalculationChain(files:ReturnType<typeof unzipSync>):void {
+  delete files["xl/calcChain.xml"];
+  const contentTypes="[Content_Types].xml";
+  if(files[contentTypes]) {
+    const xml=strFromU8(files[contentTypes]).replace(/<Override\b[^>]*\bPartName="\/xl\/calcChain\.xml"[^>]*\/>/g,"");
+    files[contentTypes]=strToU8(xml);
+  }
+  const relationships="xl/_rels/workbook.xml.rels";
+  if(files[relationships]) {
+    const xml=strFromU8(files[relationships]).replace(/<Relationship\b[^>]*\bTarget="(?:\.\.\/)?calcChain\.xml"[^>]*\/>/g,"");
+    files[relationships]=strToU8(xml);
+  }
+}
+
 function workbookVisibleColumns(xml:string):Set<string> {
   const hidden=new Set<string>();
   for(const match of xml.matchAll(/<col\b([^>]*)\/>/g)) {
@@ -169,6 +183,9 @@ function filterGraphSheet(xml:string,visibleColumns:Set<string>):string {
 export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgressTask[], visibleColumns:Iterable<string>=allTaskColumns): Uint8Array {
   const files=unzipSync(template);
   if(!files[TRACKING_SHEET]) throw new Error("La feuille Suivi des Chambres est absente du modèle.");
+  // Removed graph formulas must not leave stale cell references in Excel's
+  // calculation chain. Excel rebuilds this optional index on first open.
+  removeCalculationChain(files);
   let sheet=appendRoom525(strFromU8(files[TRACKING_SHEET]));
   const columnsVisibleInTemplate=workbookVisibleColumns(sheet);
   const rows=roomRows(sheet);

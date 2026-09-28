@@ -28,7 +28,10 @@ test("Excel export preserves the template and writes current progress for every 
   assert.match(xml,/E\$5:E\$133/);
   const bathroomGraphs=strFromU8(output["xl/worksheets/sheet3.xml"]);
   assert.doesNotMatch(bathroomGraphs,/<c\b[^>]*\br="I3"/); // Hidden H column removes the Cloisons table.
-  for(const name of Object.keys(input))assert.ok(output[name],`preserved ${name}`);
+  for(const name of Object.keys(input).filter(name=>name!=="xl/calcChain.xml"))assert.ok(output[name],`preserved ${name}`);
+  assert.equal(output["xl/calcChain.xml"],undefined);
+  assert.doesNotMatch(strFromU8(output["[Content_Types].xml"]),/calcChain/);
+  assert.doesNotMatch(strFromU8(output["xl/_rels/workbook.xml.rels"]),/calcChain/);
   assert.equal(Object.keys(output).filter(name=>name.startsWith("xl/charts/")).length,
     Object.keys(input).filter(name=>name.startsWith("xl/charts/")).length);
 });
