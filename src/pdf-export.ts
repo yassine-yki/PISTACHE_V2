@@ -151,7 +151,7 @@ export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],
     const scale=Math.min(18/image.width,14/image.height);
     pdf.addImage(logo,"PNG",12,2,image.width*scale,image.height*scale,"muc-logo");
     pdf.setFont("helvetica","normal");pdf.setFontSize(7);pdf.setTextColor(105,115,109);
-    pdf.text(`Projet MUC - ${dateLabel}`,12,205);pdf.text(`Page ${page} / ${pages}`,285,205,{align:"right"});
+    pdf.text(`Page ${page} / ${pages}`,pdf.internal.pageSize.getWidth()/2,205,{align:"center"});
   }
   return new Uint8Array(pdf.output("arraybuffer"));
 }

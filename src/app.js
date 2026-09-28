@@ -1404,9 +1404,11 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
       return visibleTypes.has(`${zone}:${code}`);
     });
     const lines=dailyProgressLines(history,visibleTasks,describe);
+    if(!lines.length)throw new Error("Aucun avancement positif enregistré aujourd’hui sur les tâches visibles.");
     const floorDefinitions=[...(activeProjectDefinition?.floors||[])].sort((a,b)=>a.id.localeCompare(b.id,"fr",{numeric:true}));
     const floorModels=new Map();
-    for(const floor of floorDefinitions)floorModels.set(floor.id,await reportFloorModel(floor));
+    const changedFloors=new Set(lines.map(line=>line.floorCode));
+    for(const floor of floorDefinitions)if(changedFloors.has(floor.id))floorModels.set(floor.id,await reportFloorModel(floor));
     const zoneOrder={bedroom:0,bathroom:1,loggia:2};
     const orderedTypes=[...(cloud.snapshot.taskTypes||[])].filter(type=>!type.hidden).sort((a,b)=>(zoneOrder[a.zone]??3)-(zoneOrder[b.zone]??3)
       || Number(a.sort_order||0)-Number(b.sort_order||0)||a.label.localeCompare(b.label,"fr",{numeric:true}));
@@ -1417,12 +1419,13 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
       const floors=[];
       for(const floor of floorDefinitions) {
       const sectionLines=lines.filter(line=>line.floorCode===floor.id&&line.zone===type.zone&&taskById.get(line.taskId)?.key.endsWith(`:${type.code}`));
+      if(!sectionLines.length)continue;
       const definition=tasksByZone[type.zone]?.find(entry=>entry.id===type.code);
       const group=type.group_label||(definition?taskGroup(type.zone,definition.sourceColumn):"Tâche");
       const model=floorModels.get(floor.id);if(!model)continue;
       floors.push({code:`${floor.id}:${type.zone}:${type.code}`,label:`${floor.label} - ${group} - ${type.label}`,planSvg:reportPlanSvg(model,type.zone,type.code,taskByKey),lines:sectionLines});
     }
-      reports.push({id:type.id,label:`${type.zone==="bathroom"?"SDB":"Chambre"} - ${type.label}`,floors});
+      if(floors.length)reports.push({id:type.id,label:`${type.zone==="bathroom"?"SDB":"Chambre"} - ${type.label}`,floors});
     }
     await downloadDailyProgressPdfs(reportDate,reports);
     document.querySelector("#saveStatus").textContent="PDF téléchargé : toutes les sous-tâches et les quatre étages";
