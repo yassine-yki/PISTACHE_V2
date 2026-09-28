@@ -71,6 +71,18 @@ function requestFullCalculation(xml: string): string {
   });
 }
 
+function workbookVisibleColumns(xml:string):Set<string> {
+  const hidden=new Set<string>();
+  for(const match of xml.matchAll(/<col\b([^>]*)\/>/g)) {
+    if(!/\bhidden="1"/.test(match[1]))continue;
+    const min=Number(match[1].match(/\bmin="(\d+)"/)?.[1]);
+    const max=Number(match[1].match(/\bmax="(\d+)"/)?.[1]);
+    if(!Number.isFinite(min)||!Number.isFinite(max))continue;
+    for(let index=min;index<=max;index++)hidden.add(columnName(index));
+  }
+  return new Set(allTaskColumns.filter(column=>!hidden.has(column)));
+}
+
 function columnNumber(column:string):number {
   return [...column].reduce((value,letter)=>value*26+letter.charCodeAt(0)-64,0);
 }
@@ -158,6 +170,7 @@ export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgress
   const files=unzipSync(template);
   if(!files[TRACKING_SHEET]) throw new Error("La feuille Suivi des Chambres est absente du modèle.");
   let sheet=appendRoom525(strFromU8(files[TRACKING_SHEET]));
+  const columnsVisibleInTemplate=workbookVisibleColumns(sheet);
   const rows=roomRows(sheet);
   if(!rows.has(525)) throw new Error("La chambre 525 n’a pas pu être ajoutée à l’export.");
 
@@ -179,7 +192,7 @@ export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgress
   sheet=setNumericCells(sheet,values);
   files[TRACKING_SHEET]=strToU8(sheet);
 
-  const visible=new Set(visibleColumns);
+  const visible=new Set([...visibleColumns].filter(column=>columnsVisibleInTemplate.has(column)));
   for(const name of GRAPH_SHEETS) {
     if(files[name])files[name]=strToU8(filterGraphSheet(strFromU8(files[name]),visible));
   }

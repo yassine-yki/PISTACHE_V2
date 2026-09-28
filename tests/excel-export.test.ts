@@ -26,6 +26,8 @@ test("Excel export preserves the template and writes current progress for every 
   assert.equal(numericCell(xml,"D133"),525);
   assert.equal(numericCell(xml,"BT133"),0.8);
   assert.match(xml,/E\$5:E\$133/);
+  const bathroomGraphs=strFromU8(output["xl/worksheets/sheet3.xml"]);
+  assert.doesNotMatch(bathroomGraphs,/<c\b[^>]*\br="I3"/); // Hidden H column removes the Cloisons table.
   for(const name of Object.keys(input))assert.ok(output[name],`preserved ${name}`);
   assert.equal(Object.keys(output).filter(name=>name.startsWith("xl/charts/")).length,
     Object.keys(input).filter(name=>name.startsWith("xl/charts/")).length);
@@ -38,14 +40,15 @@ test("Excel export removes graph blocks for hidden tasks and recalculates partia
   const bathroom=strFromU8(output["xl/worksheets/sheet3.xml"]);
   const bedroom=strFromU8(output["xl/worksheets/sheet4.xml"]);
 
+  assert.doesNotMatch(bathroom,/<c\b[^>]*\br="A3"/); // Plomberie sol is entirely hidden in the workbook.
   assert.doesNotMatch(bathroom,/<c\b[^>]*\br="I3"/); // Cloisons SDB is entirely hidden.
   assert.doesNotMatch(bathroom,/<mergeCell\b[^>]*\bref="I3:O3"/);
-  assert.match(bathroom,/SUM\('Suivi des Chambres'!F5:F44\)\/\(COUNT\('Suivi des Chambres'!\$D\$5:\$D\$44\)\*1\)/);
-  assert.match(bathroom,/SUM\('Suivi des Chambres'!F109:F133\)/);
+  assert.match(bathroom,/SUM\('Suivi des Chambres'!K5:K44\)\/\(COUNT\('Suivi des Chambres'!\$D\$5:\$D\$44\)\*1\)/);
+  assert.match(bathroom,/SUM\('Suivi des Chambres'!K109:K133\)/);
   assert.doesNotMatch(bathroom,/<c\b[^>]*\br="I15"/); // Peinture FP is entirely hidden.
 
   assert.doesNotMatch(bedroom,/<c\b[^>]*\br="I3"/); // Électricité cloisons is entirely hidden.
   assert.match(bedroom,/SUM\('Suivi des Chambres'!AS5:AS44,'Suivi des Chambres'!AX5:AZ44\)/);
-  assert.match(bedroom,/SUM\('Suivi des Chambres'!BA5:BA44,'Suivi des Chambres'!BC5:BC44\)/);
+  assert.match(bedroom,/SUM\('Suivi des Chambres'!BA5:BA44\)/);
   assert.doesNotMatch(bedroom,/<c\b[^>]*\br="I21"/); // Réception is hidden / invalid in the source workbook.
 });
