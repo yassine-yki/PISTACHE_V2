@@ -1,5 +1,4 @@
 import type { jsPDF } from "jspdf";
-import { zipSync } from "fflate";
 
 export type DailyProgressLine = {
   taskId:string;
@@ -163,17 +162,12 @@ export async function downloadDailyProgressPdfs(date:Date,reports:DailySubtaskRe
   const response=await fetch("/muc-building.png");
   if(!response.ok)throw new Error("Le logo du projet est indisponible.");
   const logo=new Uint8Array(await response.arrayBuffer());
-  const files:Record<string,Uint8Array>={};
-  for(const [index,report] of reports.entries()) {
-    const name=report.label.replace(/[<>:"/\\|?*\x00-\x1f]/g,"-").slice(0,140);
-    files[`${String(index+1).padStart(2,"0")}-${name}.pdf`]=await buildDailyProgressPdf(date,report.floors,logo);
-  }
-  const bytes=zipSync(files,{level:0});
-  const blob=new Blob([new Uint8Array(bytes).buffer],{type:"application/zip"});
+  const bytes=await buildDailyProgressPdf(date,reports.flatMap(report=>report.floors),logo);
+  const blob=new Blob([new Uint8Array(bytes).buffer],{type:"application/pdf"});
   const url=URL.createObjectURL(blob),link=document.createElement("a");
   link.href=url;
   const day=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca"}).format(date);
-  link.download=`MUC-PDF-par-sous-tache-${day}.zip`;
+  link.download=`MUC-avancement-journalier-${day}.pdf`;
   document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

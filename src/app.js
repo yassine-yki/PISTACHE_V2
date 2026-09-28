@@ -1425,7 +1425,7 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
       reports.push({id:type.id,label:`${type.zone==="bathroom"?"SDB":"Chambre"} - ${type.label}`,floors});
     }
     await downloadDailyProgressPdfs(reportDate,reports);
-    document.querySelector("#saveStatus").textContent="Archive téléchargée : un PDF par sous-tâche, avec les quatre étages";
+    document.querySelector("#saveStatus").textContent="PDF téléchargé : toutes les sous-tâches et les quatre étages";
   } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
   finally {button.disabled=false;button.textContent=label;}
 };
