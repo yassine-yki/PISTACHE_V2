@@ -1,7 +1,10 @@
 node_modules/
 .npm-cache/
+.pnpm-store/
 *.tsbuildinfo
 .test-dist/
+/tmp/
+/output/
 
 # Generated portable packages and verification copies
 /Suivi-Hotel-R2-portable/

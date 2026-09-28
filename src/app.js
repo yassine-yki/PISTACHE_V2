@@ -4,6 +4,7 @@ import { createProjectRepository } from "./repositories/index.js";
 import { ROOMS_BY_FLOOR } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
 import { downloadProgressWorkbook } from "./excel-export.js";
+import { dailyProgressLines, downloadDailyProgressPdf } from "./pdf-export.js";
 import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
 
@@ -1349,6 +1350,63 @@ document.querySelector("#exportExcel").onclick=async(event)=>{
     document.querySelector("#saveStatus").textContent="Export Excel téléchargé";
   }catch(error){document.querySelector("#saveStatus").textContent="Export impossible : "+cloudErrorMessage(error);}
   finally{button.disabled=false;button.textContent=label;}
+};
+function dailyPlanSvg(model,lines) {
+  const width=model.bounds.maxX-model.bounds.minX;
+  const height=model.bounds.maxY-model.bounds.minY;
+  const gains=new Map();
+  for(const line of lines)gains.set(line.room,(gains.get(line.room)||0)+line.gain);
+  const roomShapes=model.rooms.map(room=>{
+    const gain=gains.get(room.number)||0;
+    const className=gain>0?"advanced":"unchanged";
+    if(room.polygon)return `<path class="room ${className}" d="${pointsPath(room.polygon,true)}"/>`;
+    return `<circle class="room ${className}" cx="${numberValue(room.labelPoint.x)}" cy="${numberValue(room.labelPoint.y)}" r="0.75"/>`;
+  }).join("");
+  const labelSize=Math.max(0.34,Math.min(0.65,height*0.014));
+  const labels=model.rooms.map(room=>{
+    const gain=gains.get(room.number)||0;
+    const x=numberValue(room.labelPoint.x),y=numberValue(-room.labelPoint.y);
+    return `<g><text class="room-number" x="${x}" y="${y}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>${gain>0?`<text class="room-gain" x="${x}" y="${numberValue(-room.labelPoint.y+labelSize*1.15)}" font-size="${numberValue(labelSize*.72)}" text-anchor="middle">+${gain} pts</text>`:""}</g>`;
+  }).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="${Math.max(600,Math.round(1800/Math.max(.1,width/height)))}" viewBox="${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}" preserveAspectRatio="xMidYMid meet"><style>.dxf-detail{fill:none;stroke:#8b9690;stroke-width:.45;vector-effect:non-scaling-stroke}.room{stroke-width:1.2;vector-effect:non-scaling-stroke}.unchanged{fill:#edf0ee;fill-opacity:.42;stroke:#a6b0aa}.advanced{fill:#6dad68;fill-opacity:.68;stroke:#275c31}.room-number{font-family:Arial,sans-serif;font-weight:700;fill:#17251c;paint-order:stroke;stroke:#fff;stroke-width:.12}.room-gain{font-family:Arial,sans-serif;font-weight:700;fill:#174f28;paint-order:stroke;stroke:#fff;stroke-width:.1}</style><rect x="${numberValue(model.bounds.minX)}" y="${numberValue(-model.bounds.maxY)}" width="${numberValue(width)}" height="${numberValue(height)}" fill="#fff"/><g transform="scale(1 -1)">${model.architecture}${roomShapes}</g><g>${labels}</g></svg>`;
+}
+async function dailyFloorReport(floor,lines) {
+  if(!floor.dxfPath)throw new Error(`Le plan ${floor.label} n’est pas configuré.`);
+  const response=await fetch(`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt||""))}`);
+  if(!response.ok)throw new Error(`Le plan ${floor.label} est indisponible (${response.status}).`);
+  const source=await response.text();
+  const dxf=new window.DxfParser().parseSync(source);
+  const model=buildDxfModel(dxf,layoutViewBounds(source));
+  return {code:floor.id,label:floor.label,planSvg:dailyPlanSvg(model,lines),lines};
+}
+document.querySelector("#exportDailyPdf").onclick=async(event)=>{
+  if(!cloud?.snapshot || currentUser?.role!=="admin")return;
+  const button=event.currentTarget,label=button.textContent;button.disabled=true;button.textContent="Préparation…";
+  document.querySelector("#saveStatus").textContent="Préparation du rapport journalier…";
+  try {
+    const synced=await syncCloud({refresh:true});
+    if(!synced)throw new Error("La synchronisation doit réussir avant l’export.");
+    const reportDate=new Date(),day=projectDay(reportDate);
+    const history=(await cloud.recentHistory()).filter(item=>projectDay(new Date(item.created_at))===day);
+    const describe=(zone,code)=>{
+      const type=cloud.snapshot.taskTypes?.find(entry=>entry.zone===zone&&entry.code===code);
+      const definition=tasksByZone[zone]?.find(entry=>entry.id===code);
+      if(!type&&!definition)return null;
+      return {group:type?.group_label||(definition?taskGroup(zone,definition.sourceColumn):"Tâche"),label:type?.label||definition?.label||code};
+    };
+    const visibleTypes=new Set((cloud.snapshot.taskTypes||[]).filter(type=>!type.hidden).map(type=>`${type.zone}:${type.code}`));
+    const visibleTasks=cloud.snapshot.tasks.filter(task=>{
+      const [,zone,code]=task.key.split(":");
+      return visibleTypes.has(`${zone}:${code}`);
+    });
+    const lines=dailyProgressLines(history,visibleTasks,describe);
+    const floorDefinitions=[...(activeProjectDefinition?.floors||[])].sort((a,b)=>a.id.localeCompare(b.id,"fr",{numeric:true}));
+    const reports=[];
+    for(const floor of floorDefinitions)reports.push(await dailyFloorReport(floor,lines.filter(line=>line.floorCode===floor.id)));
+    await downloadDailyProgressPdf(reportDate,reports);
+    document.querySelector("#saveStatus").textContent="Rapport PDF journalier téléchargé";
+  } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
+  finally {button.disabled=false;button.textContent=label;}
 };
 function profileResponsibilityHtml() {
   if(currentUser?.role==="admin")return '<p class="profile-scope-summary">Accès administrateur à tout le projet, sauf aux tâches qui vous sont explicitement masquées.</p>';

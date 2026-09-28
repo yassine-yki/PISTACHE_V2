@@ -190,6 +190,11 @@ export class CloudWorkspace {
   async history() {
     return await unwrap(client!.from("progress_updates").select("id,room_task_id,changed_by,before_state,after_state,correction_reason,correction_note,created_at").eq("project_id",this.snapshot!.projectId).order("created_at",{ascending:false}).limit(80)) as any[];
   }
+  async recentHistory() {
+    const since=new Date(Date.now()-48*60*60*1000).toISOString();
+    return await unwrap(client!.from("progress_updates").select("id,room_task_id,changed_by,before_state,after_state,correction_reason,correction_note,created_at")
+      .eq("project_id",this.snapshot!.projectId).gte("created_at",since).order("created_at",{ascending:true}).limit(5000)) as any[];
+  }
   async assignmentScope() {
     const projectId=this.snapshot!.projectId;
     const [floors,blocks,rooms,tasks,assignments]=await Promise.all(
