@@ -1376,12 +1376,17 @@ function reportPlanSvg(model,zone,code,taskByKey) {
     .dxf-label{font-family:Arial,sans-serif;fill:#173c3e;paint-order:stroke;stroke:#fff;stroke-width:.12;font-weight:700}
   </style><rect x="${numberValue(model.bounds.minX)}" y="${numberValue(-model.bounds.maxY)}" width="${numberValue(width)}" height="${numberValue(height)}" fill="#fff"/><g transform="scale(1 -1)">${model.architecture}</g><g transform="scale(1 -1)">${zonePaths}</g><g>${model.annotations}${labels}</g></svg>`;
 }
+const reportModelCache=new Map();
 async function reportFloorModel(floor) {
   if(!floor.dxfPath)throw new Error(`Le plan ${floor.label} n’est pas configuré.`);
-  const response=await fetch(`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt||""))}`);
+  const cacheKey=`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt||""))}`;
+  if(reportModelCache.has(cacheKey))return reportModelCache.get(cacheKey);
+  const response=await fetch(cacheKey);
   if(!response.ok)throw new Error(`Le plan ${floor.label} est indisponible (${response.status}).`);
   const source=await response.text();
-  return buildDxfModel(new window.DxfParser().parseSync(source),layoutViewBounds(source));
+  const model=buildDxfModel(new window.DxfParser().parseSync(source),layoutViewBounds(source));
+  reportModelCache.set(cacheKey,model);
+  return model;
 }
 document.querySelector("#exportDailyPdf").onclick=async(event)=>{
   if(!cloud?.snapshot || currentUser?.role!=="admin")return;
@@ -1427,7 +1432,7 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
     }
       if(floors.length)reports.push({id:type.id,label:`${type.zone==="bathroom"?"SDB":"Chambre"} - ${type.label}`,floors});
     }
-    await downloadDailyProgressPdfs(reportDate,reports);
+    await downloadDailyProgressPdfs(reportDate,reports,(done,total)=>{button.textContent=`PDF : ${done}/${total}`;});
     document.querySelector("#saveStatus").textContent="PDF téléchargé : toutes les sous-tâches et les quatre étages";
   } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
   finally {button.disabled=false;button.textContent=label;}

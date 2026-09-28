@@ -57,7 +57,7 @@ function safeText(value:unknown):string {
   return String(value ?? "").replace(/[\u2010-\u2015]/g,"-");
 }
 
-async function svgPng(svg:string):Promise<string> {
+async function svgPng(svg:string):Promise<{data:string;width:number;height:number}> {
   const blob=new Blob([svg],{type:"image/svg+xml;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   try {
@@ -73,7 +73,7 @@ async function svgPng(svg:string):Promise<string> {
     if(!context)throw new Error("Le plan ne peut pas être converti en image.");
     context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);
     context.drawImage(image,0,0,canvas.width,canvas.height);
-    return canvas.toDataURL("image/png",0.94);
+    return {data:canvas.toDataURL("image/png"),width:canvas.width,height:canvas.height};
   } finally { URL.revokeObjectURL(url); }
 }
 
@@ -121,7 +121,7 @@ function drawRows(pdf:jsPDF,lines:DailyProgressLine[],startIndex:number,y:number
 
 function columnFont(_values:string[]):"normal" { return "normal"; }
 
-export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],logo:Uint8Array):Promise<Uint8Array> {
+export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],logo:Uint8Array,onProgress?:(done:number,total:number)=>void):Promise<Uint8Array> {
   const {jsPDF}=await import("jspdf");
   const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4",compress:true});
   const dateLabel=new Intl.DateTimeFormat("fr-FR",{timeZone:"Africa/Casablanca",weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(date);
@@ -130,10 +130,9 @@ export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],
     const floor=floors[floorIndex];drawHeader(pdf,dateLabel,floor.label);
     pdf.setDrawColor(207,218,210);pdf.setFillColor(255,255,255);pdf.roundedRect(12,32,273,102,2,2,"FD");
     const plan=await svgPng(floor.planSvg);
-    const properties=pdf.getImageProperties(plan);
-    const ratio=Math.min(267/properties.width,96/properties.height);
-    const width=properties.width*ratio,height=properties.height*ratio;
-    pdf.addImage(plan,"PNG",12+(273-width)/2,35+(96-height)/2,width,height,undefined,"FAST");
+    const ratio=Math.min(267/plan.width,96/plan.height);
+    const width=plan.width*ratio,height=plan.height*ratio;
+    pdf.addImage(plan.data,"PNG",12+(273-width)/2,35+(96-height)/2,width,height,`plan-${floorIndex}`,"FAST");
     pdf.setFont("helvetica","bold");pdf.setFontSize(10);pdf.setTextColor(31,57,39);
     pdf.text("Avancement réalisé aujourd’hui",12,142);
     if(!floor.lines.length) {
@@ -143,12 +142,15 @@ export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],
       const y=drawTableHeader(pdf,146);
       drawRows(pdf,floor.lines,0,y,dateLabel,floor.label);
     }
+    onProgress?.(floorIndex+1,floors.length);
+    await new Promise(resolve=>setTimeout(resolve,0));
   }
   const pages=pdf.getNumberOfPages();
+  const image=pdf.getImageProperties(logo);
+  const scale=Math.min(18/image.width,14/image.height);
   for(let page=1;page<=pages;page++) {
     pdf.setPage(page);
-    const image=pdf.getImageProperties(logo);
-    const scale=Math.min(18/image.width,14/image.height);
+
     pdf.addImage(logo,"PNG",12,2,image.width*scale,image.height*scale,"muc-logo");
     pdf.setFont("helvetica","normal");pdf.setFontSize(7);pdf.setTextColor(105,115,109);
     pdf.text(`Page ${page} / ${pages}`,pdf.internal.pageSize.getWidth()/2,205,{align:"center"});
@@ -157,12 +159,12 @@ export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],
 }
 
 export type DailySubtaskReport = {id:string;label:string;floors:DailyFloorReport[]};
-export async function downloadDailyProgressPdfs(date:Date,reports:DailySubtaskReport[]):Promise<void> {
+export async function downloadDailyProgressPdfs(date:Date,reports:DailySubtaskReport[],onProgress?:(done:number,total:number)=>void):Promise<void> {
   if(!reports.length)throw new Error("Aucune sous-tâche visible à exporter.");
   const response=await fetch("/muc-building.png");
   if(!response.ok)throw new Error("Le logo du projet est indisponible.");
   const logo=new Uint8Array(await response.arrayBuffer());
-  const bytes=await buildDailyProgressPdf(date,reports.flatMap(report=>report.floors),logo);
+  const bytes=await buildDailyProgressPdf(date,reports.flatMap(report=>report.floors),logo,onProgress);
   const blob=new Blob([new Uint8Array(bytes).buffer],{type:"application/pdf"});
   const url=URL.createObjectURL(blob),link=document.createElement("a");
   link.href=url;
