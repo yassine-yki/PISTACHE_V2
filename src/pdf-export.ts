@@ -90,7 +90,7 @@ function drawHeader(pdf:jsPDF,dateLabel:string,floorLabel:string,continued=false
 function drawTableHeader(pdf:jsPDF,y:number):number {
   const titles=["Chambre","Zone","Tâche","Sous-tâche","Hier","Actuel","Gain"];
   const widths=[22,25,58,100,22,22,24];
-  let x=12;pdf.setFillColor(232,239,231);pdf.rect(12,y,273,8,"F");
+  let x=12;pdf.setFillColor(255,255,255);pdf.setDrawColor(205,214,208);pdf.rect(12,y,273,8,"FD");
   pdf.setTextColor(31,57,39);pdf.setFont("helvetica","bold");pdf.setFontSize(7.6);
   titles.forEach((title,index)=>{pdf.text(title,x+2,y+5.2);x+=widths[index];});
   return y+8;
@@ -108,7 +108,7 @@ function drawRows(pdf:jsPDF,lines:DailyProgressLine[],startIndex:number,y:number
     if(y+rowHeight>197) {
       pdf.addPage();y=drawTableHeader(pdf,drawHeader(pdf,dateLabel,floorLabel,true));
     }
-    if(index%2===1){pdf.setFillColor(248,250,247);pdf.rect(12,y,273,rowHeight,"F");}
+    pdf.setFillColor(255,255,255);pdf.rect(12,y,273,rowHeight,"F");
     pdf.setDrawColor(218,225,220);pdf.line(12,y+rowHeight,285,y+rowHeight);
     let x=12;pdf.setTextColor(35,45,39);pdf.setFont("helvetica",columnFont(values));pdf.setFontSize(7.4);
     wrapped.forEach((parts,column)=>{pdf.setFont("helvetica",column===6?"bold":"normal");pdf.text(parts,x+2,y+4.5);x+=widths[column];});
