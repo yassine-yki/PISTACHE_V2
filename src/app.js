@@ -1351,35 +1351,39 @@ document.querySelector("#exportExcel").onclick=async(event)=>{
   }catch(error){document.querySelector("#saveStatus").textContent="Export impossible : "+cloudErrorMessage(error);}
   finally{button.disabled=false;button.textContent=label;}
 };
-function dailyPlanSvg(model,lines) {
-  const width=model.bounds.maxX-model.bounds.minX;
-  const height=model.bounds.maxY-model.bounds.minY;
-  const gains=new Map();
-  for(const line of lines)gains.set(line.room,(gains.get(line.room)||0)+line.gain);
-  const roomShapes=model.rooms.map(room=>{
-    const gain=gains.get(room.number)||0;
-    const className=gain<=0?"unchanged":gain<25?"gain-low":gain<50?"gain-medium":"gain-high";
-    if(room.polygon)return `<path class="room ${className}" d="${pointsPath(room.polygon,true)}"/>`;
-    return `<circle class="room ${className}" cx="${numberValue(room.labelPoint.x)}" cy="${numberValue(room.labelPoint.y)}" r="0.75"/>`;
-  }).join("");
-  const labelSize=Math.max(0.34,Math.min(0.65,height*0.014));
-  const labels=model.rooms.map(room=>{
-    const gain=gains.get(room.number)||0;
-    const x=numberValue(room.labelPoint.x),y=numberValue(-room.labelPoint.y);
-    return `<g><text class="room-number" x="${x}" y="${y}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>${gain>0?`<text class="room-gain" x="${x}" y="${numberValue(-room.labelPoint.y+labelSize*1.15)}" font-size="${numberValue(labelSize*.72)}" text-anchor="middle">+${gain} % aujourd’hui</text>`:""}</g>`;
-  }).join("");
-  const legendX=model.bounds.minX+width*.015,legendY=-model.bounds.maxY+height*.04,legendSize=Math.max(.45,height*.016);
-  const legend=`<g class="legend" transform="translate(${numberValue(legendX)} ${numberValue(legendY)})"><rect x="0" y="0" width="${numberValue(width*.42)}" height="${numberValue(legendSize*1.65)}" rx="${numberValue(legendSize*.2)}" fill="#fff" fill-opacity=".92" stroke="#cfd8d1"/><circle cx="${numberValue(legendSize*.7)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#fff" stroke="#9aa69f"/><text x="${numberValue(legendSize*1.2)}" y="${numberValue(legendSize)}">Aucun gain</text><circle cx="${numberValue(legendSize*4.6)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#f3d9a7"/><text x="${numberValue(legendSize*5.1)}" y="${numberValue(legendSize)}">+1 à 24 %</text><circle cx="${numberValue(legendSize*8.5)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#e9b16f"/><text x="${numberValue(legendSize*9)}" y="${numberValue(legendSize)}">+25 à 49 %</text><circle cx="${numberValue(legendSize*12.9)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#93cbb1"/><text x="${numberValue(legendSize*13.4)}" y="${numberValue(legendSize)}">+50 % et plus</text></g>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="${Math.max(600,Math.round(1800/Math.max(.1,width/height)))}" viewBox="${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}" preserveAspectRatio="xMidYMid meet"><style>.dxf-detail{fill:none;stroke:#66736c;stroke-width:.5;vector-effect:non-scaling-stroke}.room{stroke-width:1.05;vector-effect:non-scaling-stroke;fill-opacity:.68}.unchanged{fill:#fff;stroke:#9aa69f}.gain-low{fill:#f3d9a7;stroke:#bd812d}.gain-medium{fill:#e9b16f;stroke:#a86519}.gain-high{fill:#93cbb1;stroke:#2d7254}.room-number{font-family:Arial,sans-serif;font-weight:700;fill:#17251c;paint-order:stroke;stroke:#fff;stroke-width:.12}.room-gain{font-family:Arial,sans-serif;font-weight:700;fill:#174f28;paint-order:stroke;stroke:#fff;stroke-width:.1}.legend text{font-family:Arial,sans-serif;font-size:${numberValue(legendSize*.58)}px;fill:#243a2b}</style><rect x="${numberValue(model.bounds.minX)}" y="${numberValue(-model.bounds.maxY)}" width="${numberValue(width)}" height="${numberValue(height)}" fill="#fff"/><g transform="scale(1 -1)">${model.architecture}${roomShapes}</g><g>${labels}${legend}</g></svg>`;
-}
-async function dailyFloorReport(floor,lines) {
-  if(!floor.dxfPath)throw new Error(`Le plan ${floor.label} n’est pas configuré.`);
-  const response=await fetch(`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt||""))}`);
-  if(!response.ok)throw new Error(`Le plan ${floor.label} est indisponible (${response.status}).`);
-  const source=await response.text();
-  const dxf=new window.DxfParser().parseSync(source);
-  const model=buildDxfModel(dxf,layoutViewBounds(source));
-  return {code:floor.id,label:floor.label,planSvg:dailyPlanSvg(model,lines),lines};
+function currentPlanSvg() {
+  const source=elements.dxfPlan;
+  const viewBox=source.getAttribute("viewBox");
+  if(!viewBox || !source.childElementCount)throw new Error("Le plan DXF affiché n’est pas encore disponible.");
+  const [, , widthText, heightText]=viewBox.split(/\s+/);
+  const width=Number(widthText),height=Number(heightText);
+  const clone=source.cloneNode(true);
+  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+  clone.setAttribute("width","1800");
+  clone.setAttribute("height",String(Math.max(600,Math.round(1800/Math.max(.1,width/height)))));
+  clone.setAttribute("preserveAspectRatio","xMidYMid meet");
+  clone.querySelectorAll("[tabindex],[role],[aria-label]").forEach(node=>{
+    node.removeAttribute("tabindex");node.removeAttribute("role");node.removeAttribute("aria-label");
+  });
+  const style=document.createElementNS("http://www.w3.org/2000/svg","style");
+  style.textContent=`
+    .dxf-line{vector-effect:non-scaling-stroke;stroke:#4d5653;stroke-width:.7;fill:none}
+    .dxf-detail{vector-effect:non-scaling-stroke;stroke:#626d68;stroke-width:.55;fill:none}
+    .dxf-annotation{fill:#3c6590;font-family:Arial,sans-serif;font-weight:500}
+    .dxf-zone{vector-effect:non-scaling-stroke;stroke-width:1.1;fill-opacity:.28}
+    .dxf-zone.unassigned{fill:#aab8b3;stroke:#397c80;fill-opacity:.24}
+    .dxf-zone.status-not-started{fill:#c94043;stroke:#9e292c}
+    .dxf-zone.status-in-progress{fill:#e38b22;stroke:#a75e0d}
+    .dxf-zone.status-done{fill:#16835d;stroke:#0e5e43}
+    .dxf-zone.status-blocked{fill:#8f334e;stroke:#672037}
+    .dxf-zone.filtered-out{fill:#b9c2be;stroke:#8c9993;fill-opacity:.4}
+    .dxf-zone.selected{fill-opacity:.72;stroke-width:1.1}
+    .dxf-label,.dxf-loggia-label{font-family:Arial,sans-serif;fill:#173c3e;paint-order:stroke;stroke:#fff;stroke-width:.12;font-weight:700}
+    .dxf-room-marker.filtered-out .dxf-label,.dxf-loggia-label.filtered-out{fill:#9ba7a1}
+    .dxf-room-hit{fill:none;stroke:none}
+  `;
+  clone.prepend(style);
+  return new XMLSerializer().serializeToString(clone);
 }
 document.querySelector("#exportDailyPdf").onclick=async(event)=>{
   if(!cloud?.snapshot || currentUser?.role!=="admin")return;
@@ -1402,10 +1406,10 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
       return visibleTypes.has(`${zone}:${code}`);
     });
     const lines=dailyProgressLines(history,visibleTasks,describe);
-    const floorDefinitions=[...(activeProjectDefinition?.floors||[])].sort((a,b)=>a.id.localeCompare(b.id,"fr",{numeric:true}));
-    const reports=[];
-    for(const floor of floorDefinitions)reports.push(await dailyFloorReport(floor,lines.filter(line=>line.floorCode===floor.id)));
-    await downloadDailyProgressPdf(reportDate,reports);
+    const floor=floorDefinition();
+    if(!floor)throw new Error("Aucun étage sélectionné.");
+    const floorLines=lines.filter(line=>line.floorCode===floor.id);
+    await downloadDailyProgressPdf(reportDate,[{code:floor.id,label:floor.label,planSvg:currentPlanSvg(),lines:floorLines}]);
     document.querySelector("#saveStatus").textContent="Rapport PDF journalier téléchargé";
   } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
   finally {button.disabled=false;button.textContent=label;}
