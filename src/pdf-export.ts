@@ -102,7 +102,7 @@ function drawRows(pdf:jsPDF,lines:DailyProgressLine[],startIndex:number,y:number
   while(index<lines.length) {
     const line=lines[index];
     const values=[String(line.room),line.zone==="bathroom"?"Salle de bain":line.zone==="bedroom"?"Chambre":"Loggia",
-      line.group,line.label,`${line.before} %`,`${line.after} %`,`+${line.gain} pts`];
+      line.group,line.label,`${line.before} %`,`${line.after} %`,`+${line.gain} %`];
     const wrapped=values.map((value,column)=>pdf.splitTextToSize(safeText(value),widths[column]-4) as string[]);
     const rowHeight=Math.max(8,Math.max(...wrapped.map(parts=>parts.length))*3.6+3);
     if(y+rowHeight>197) {

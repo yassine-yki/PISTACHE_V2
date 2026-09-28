@@ -1351,33 +1351,46 @@ document.querySelector("#exportExcel").onclick=async(event)=>{
   }catch(error){document.querySelector("#saveStatus").textContent="Export impossible : "+cloudErrorMessage(error);}
   finally{button.disabled=false;button.textContent=label;}
 };
-function dailyPlanSvg(model,lines) {
+function dailyPlanSvg(model,lines,roomProgress) {
   const width=model.bounds.maxX-model.bounds.minX;
   const height=model.bounds.maxY-model.bounds.minY;
   const gains=new Map();
   for(const line of lines)gains.set(line.room,(gains.get(line.room)||0)+line.gain);
   const roomShapes=model.rooms.map(room=>{
-    const gain=gains.get(room.number)||0;
-    const className=gain>0?"advanced":"unchanged";
-    if(room.polygon)return `<path class="room ${className}" d="${pointsPath(room.polygon,true)}"/>`;
-    return `<circle class="room ${className}" cx="${numberValue(room.labelPoint.x)}" cy="${numberValue(room.labelPoint.y)}" r="0.75"/>`;
+    const status=roomProgress.get(room.number);
+    const className=!status?"untracked":status.blocked?"blocked":status.progress>=100?"done":status.progress>0?"in-progress":"not-started";
+    const changed=gains.has(room.number)?" changed-today":"";
+    if(room.polygon)return `<path class="room ${className}${changed}" d="${pointsPath(room.polygon,true)}"/>`;
+    return `<circle class="room ${className}${changed}" cx="${numberValue(room.labelPoint.x)}" cy="${numberValue(room.labelPoint.y)}" r="0.75"/>`;
   }).join("");
   const labelSize=Math.max(0.34,Math.min(0.65,height*0.014));
   const labels=model.rooms.map(room=>{
     const gain=gains.get(room.number)||0;
+    const progress=roomProgress.get(room.number)?.progress;
     const x=numberValue(room.labelPoint.x),y=numberValue(-room.labelPoint.y);
-    return `<g><text class="room-number" x="${x}" y="${y}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>${gain>0?`<text class="room-gain" x="${x}" y="${numberValue(-room.labelPoint.y+labelSize*1.15)}" font-size="${numberValue(labelSize*.72)}" text-anchor="middle">+${gain} pts</text>`:""}</g>`;
+    return `<g><text class="room-number" x="${x}" y="${y}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}${progress===undefined?"":` · ${progress} %`}</text>${gain>0?`<text class="room-gain" x="${x}" y="${numberValue(-room.labelPoint.y+labelSize*1.15)}" font-size="${numberValue(labelSize*.72)}" text-anchor="middle">+${gain} % aujourd’hui</text>`:""}</g>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="${Math.max(600,Math.round(1800/Math.max(.1,width/height)))}" viewBox="${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}" preserveAspectRatio="xMidYMid meet"><style>.dxf-detail{fill:none;stroke:#8b9690;stroke-width:.45;vector-effect:non-scaling-stroke}.room{stroke-width:1.2;vector-effect:non-scaling-stroke}.unchanged{fill:#edf0ee;fill-opacity:.42;stroke:#a6b0aa}.advanced{fill:#6dad68;fill-opacity:.68;stroke:#275c31}.room-number{font-family:Arial,sans-serif;font-weight:700;fill:#17251c;paint-order:stroke;stroke:#fff;stroke-width:.12}.room-gain{font-family:Arial,sans-serif;font-weight:700;fill:#174f28;paint-order:stroke;stroke:#fff;stroke-width:.1}</style><rect x="${numberValue(model.bounds.minX)}" y="${numberValue(-model.bounds.maxY)}" width="${numberValue(width)}" height="${numberValue(height)}" fill="#fff"/><g transform="scale(1 -1)">${model.architecture}${roomShapes}</g><g>${labels}</g></svg>`;
+  const legendX=model.bounds.minX+width*.015,legendY=-model.bounds.maxY+height*.04,legendSize=Math.max(.45,height*.016);
+  const legend=`<g class="legend" transform="translate(${numberValue(legendX)} ${numberValue(legendY)})"><rect x="0" y="0" width="${numberValue(width*.34)}" height="${numberValue(legendSize*1.65)}" rx="${numberValue(legendSize*.2)}" fill="#fff" fill-opacity=".9" stroke="#cfd8d1"/><circle cx="${numberValue(legendSize*.7)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#e9a6a6"/><text x="${numberValue(legendSize*1.2)}" y="${numberValue(legendSize)}">0 %</text><circle cx="${numberValue(legendSize*3.1)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#e9b16f"/><text x="${numberValue(legendSize*3.6)}" y="${numberValue(legendSize)}">En cours</text><circle cx="${numberValue(legendSize*6.8)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#93cbb1"/><text x="${numberValue(legendSize*7.3)}" y="${numberValue(legendSize)}">100 %</text><circle cx="${numberValue(legendSize*10.2)}" cy="${numberValue(legendSize*.82)}" r="${numberValue(legendSize*.32)}" fill="#a95a70"/><text x="${numberValue(legendSize*10.7)}" y="${numberValue(legendSize)}">Bloquée</text></g>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="${Math.max(600,Math.round(1800/Math.max(.1,width/height)))}" viewBox="${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}" preserveAspectRatio="xMidYMid meet"><style>.dxf-detail{fill:none;stroke:#66736c;stroke-width:.5;vector-effect:non-scaling-stroke}.room{stroke-width:1.05;vector-effect:non-scaling-stroke;fill-opacity:.62}.untracked{fill:#edf0ee;stroke:#9aa69f}.not-started{fill:#e9a6a6;stroke:#9e3d3f}.in-progress{fill:#e9b16f;stroke:#a86519}.done{fill:#93cbb1;stroke:#2d7254}.blocked{fill:#a95a70;stroke:#713348}.changed-today{stroke:#174f28;stroke-width:2}.room-number{font-family:Arial,sans-serif;font-weight:700;fill:#17251c;paint-order:stroke;stroke:#fff;stroke-width:.12}.room-gain{font-family:Arial,sans-serif;font-weight:700;fill:#174f28;paint-order:stroke;stroke:#fff;stroke-width:.1}.legend text{font-family:Arial,sans-serif;font-size:${numberValue(legendSize*.58)}px;fill:#243a2b}</style><rect x="${numberValue(model.bounds.minX)}" y="${numberValue(-model.bounds.maxY)}" width="${numberValue(width)}" height="${numberValue(height)}" fill="#fff"/><g transform="scale(1 -1)">${model.architecture}${roomShapes}</g><g>${labels}${legend}</g></svg>`;
 }
-async function dailyFloorReport(floor,lines) {
+function dailyRoomProgress(tasks,floorCode) {
+  const grouped=new Map();
+  for(const task of tasks.filter(item=>item.active&&item.floorCode===floorCode)) {
+    const room=Number(task.key.split(":",1)[0]);
+    const value=grouped.get(room)||{sum:0,count:0,blocked:false};
+    value.sum+=task.record.progress;value.count++;value.blocked ||= task.record.blocked;grouped.set(room,value);
+  }
+  return new Map([...grouped].map(([room,value])=>[room,{progress:Math.round(value.sum/value.count),blocked:value.blocked}]));
+}
+async function dailyFloorReport(floor,lines,visibleTasks) {
   if(!floor.dxfPath)throw new Error(`Le plan ${floor.label} n’est pas configuré.`);
   const response=await fetch(`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt||""))}`);
   if(!response.ok)throw new Error(`Le plan ${floor.label} est indisponible (${response.status}).`);
   const source=await response.text();
   const dxf=new window.DxfParser().parseSync(source);
   const model=buildDxfModel(dxf,layoutViewBounds(source));
-  return {code:floor.id,label:floor.label,planSvg:dailyPlanSvg(model,lines),lines};
+  return {code:floor.id,label:floor.label,planSvg:dailyPlanSvg(model,lines,dailyRoomProgress(visibleTasks,floor.id)),lines};
 }
 document.querySelector("#exportDailyPdf").onclick=async(event)=>{
   if(!cloud?.snapshot || currentUser?.role!=="admin")return;
@@ -1402,7 +1415,7 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
     const lines=dailyProgressLines(history,visibleTasks,describe);
     const floorDefinitions=[...(activeProjectDefinition?.floors||[])].sort((a,b)=>a.id.localeCompare(b.id,"fr",{numeric:true}));
     const reports=[];
-    for(const floor of floorDefinitions)reports.push(await dailyFloorReport(floor,lines.filter(line=>line.floorCode===floor.id)));
+    for(const floor of floorDefinitions)reports.push(await dailyFloorReport(floor,lines.filter(line=>line.floorCode===floor.id),visibleTasks));
     await downloadDailyProgressPdf(reportDate,reports);
     document.querySelector("#saveStatus").textContent="Rapport PDF journalier téléchargé";
   } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
