@@ -7,7 +7,7 @@ import { downloadProgressWorkbook } from "./excel-export.js";
 import { dailyProgressLines, downloadDailyProgressPdfs } from "./pdf-export.js";
 import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
-import { openTaskPhotos } from "./task-photos.js";
+import { openProjectPhotos, openTaskPhotos } from "./task-photos.js";
 
 
 
@@ -1091,6 +1091,7 @@ function renderAccessShell() {
   document.querySelector("#adminTasks").hidden = !admin || adminPage !== "tasks" || localMode;
   document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
+  document.querySelector("#projectPhotosButton").hidden = !accessReady || localMode;
   document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
   document.querySelector("#syncButton").hidden = !cloud;
   document.querySelector("#draftActions").hidden=!accessReady || localMode || currentUser?.role==="viewer";
@@ -1794,3 +1795,7 @@ for (const [id, readOnly] of [["addTaskPhoto", false], ["viewTaskPhotos", true]]
     }, readOnly);
   });
 }
+document.querySelector("#projectPhotosButton").addEventListener("click", () => {
+  if (!cloud?.snapshot) return;
+  openProjectPhotos(cloud.snapshot, Object.fromEntries((activeProjectDefinition?.floors || []).map(floor => [floor.id, floor.label])));
+});

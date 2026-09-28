@@ -49,7 +49,7 @@
         </div>
       </div>
       <span class="sr-only" id="importStatus" aria-live="polite"></span>
-      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
+      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="projectPhotosButton" hidden>Photos</button><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
     <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button><span class="admin-exports"><button type="button" id="exportExcel">Exporter Excel</button><button type="button" id="exportDailyPdf">Exporter PDF journalier</button></span></nav>
 
@@ -246,11 +246,17 @@
       <h2 id="taskPhotoTitle">Photos</h2><p id="taskPhotoContext"></p>
       <form id="taskPhotoForm"><label class="field">Photo<input id="taskPhotoFile" type="file" accept="image/jpeg,image/png,image/webp" required></label>
       <img id="taskPhotoPreview" hidden alt="Aperçu de la photo" style="max-width:100%;max-height:220px;object-fit:contain">
-      <label class="field">Commentaire (facultatif)<textarea id="taskPhotoCaption" maxlength="1000" rows="2"></textarea></label>
+      <label class="field">Type<select id="taskPhotoType" required><option value="followup">Suivi / information</option><option value="issue">Problème à traiter</option><option value="obstruction">Encombrement</option></select></label>
+      <label class="field">Description<textarea id="taskPhotoCaption" maxlength="1000" rows="2" required placeholder="Décrire ce que montre la photo…"></textarea></label>
       <p>La photo sera partagée avec l’équipe après votre confirmation. Le pourcentage reste inchangé.</p>
       <button class="button primary" type="submit" id="publishTaskPhoto">Confirmer et partager la photo</button></form>
       <p id="taskPhotoStatus" role="status"></p><div id="taskPhotoGallery"></div>
       <button type="button" class="button secondary" id="closeTaskPhotos">Fermer</button>
+    </div></dialog>
+    <dialog id="projectPhotosDialog" class="project-dialog photo-library-dialog" aria-labelledby="projectPhotosTitle"><div class="access-form">
+      <div class="dialog-heading"><div><span class="eyebrow">Suivi photographique</span><h2 id="projectPhotosTitle">Photos du chantier</h2></div><button type="button" class="button secondary" id="closeProjectPhotos">Fermer</button></div>
+      <div class="photo-library-filters"><label class="field">Type<select id="projectPhotoType"><option value="all">Tous les types</option><option value="issue">Problèmes à traiter</option><option value="obstruction">Encombrements</option><option value="followup">Suivi / informations</option></select></label><label class="field">Étage<select id="projectPhotoFloor"><option value="all">Tous les étages</option></select></label><label class="field">Recherche<input id="projectPhotoSearch" type="search" placeholder="Chambre, tâche, description…"></label></div>
+      <p id="projectPhotoStatus" role="status"></p><div id="projectPhotoGallery" class="project-photo-gallery"></div>
     </div></dialog>
     <script src="/vendor/dxf-parser.js"></script>
     <script type="module" src="/src/app.js"></script>
