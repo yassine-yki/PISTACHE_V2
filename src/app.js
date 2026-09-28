@@ -7,6 +7,7 @@ import { downloadProgressWorkbook } from "./excel-export.js";
 import { dailyProgressLines, downloadDailyProgressPdfs } from "./pdf-export.js";
 import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
+import { openTaskPhotos } from "./task-photos.js";
 
 
 
@@ -642,6 +643,9 @@ function renderEditor() {
   document.querySelector("#correctionNoteLabel").textContent=elements.correctionReason.value==="input-error" ? "Explication (facultative)" : "Explication (obligatoire)";
   elements.correctionNote.required=elements.correctionReason.value!=="input-error";
   const locked = !canEditSelectedRoom() || saving;
+  document.querySelector("#reviewPhoto").disabled = locked || !cloud;
+  document.querySelector("#addTaskPhoto").disabled = locked || !cloud;
+  document.querySelector("#viewTaskPhotos").disabled = !cloud;
   elements.taskLock.hidden = !locked;
   elements.correctionTrigger.hidden = (!canEditSelectedRoom() && currentUser?.role !== "admin") || record.progress <= 0 || correctionAuthorized || state.correctionPanelOpen;
   elements.correctionPanel.hidden = (!canEditSelectedRoom() && currentUser?.role !== "admin") || !state.correctionPanelOpen;
@@ -1778,3 +1782,16 @@ document.querySelector('#invitationList').onclick=async event=>{
   try{await cloud.revokeInvitation(button.dataset.revokeInvitation);await renderInvitations();document.querySelector('#invitationMessage').textContent='Invitation révoquée.';}
   catch(error){button.disabled=false;document.querySelector('#invitationMessage').textContent=error.message;}
 };
+
+for (const [id, review, readOnly] of [["reviewPhoto", true, false], ["addTaskPhoto", false, false], ["viewTaskPhotos", false, true]]) {
+  document.getElementById(id).addEventListener("click", () => {
+    if (!cloud || !currentUser) return;
+    const task = currentTasks().find(item => item.id === state.selectedTask);
+    if (!task) return;
+    openTaskPhotos({
+      snapshot: cloud.snapshot, userId: cloud.snapshot.userId,
+      key: state.selectedRoom + ":" + state.selectedZone + ":" + state.selectedTask,
+      label: floorDefinition().label + " · Chambre " + state.selectedRoom + " · " + (state.selectedZone === "bedroom" ? "Chambre" : "Salle de bain") + " · " + task.label
+    }, review, readOnly);
+  });
+}

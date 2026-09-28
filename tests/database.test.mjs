@@ -482,4 +482,47 @@ test('PISTACHE schema, RLS and transactional RPCs', async (t) => {
   assert.equal((await query('select id from public.task_types where id=$1',[type])).length,0);
  });
 
-});
+
+ await t.test('task photos enforce membership, assignment and hidden-task access without changing progress',async()=>{
+  await db.exec('reset role');
+  await db.exec(`
+    create schema storage;
+    create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+    create table storage.objects(bucket_id text,name text);
+    create function storage.foldername(text) returns text[] language sql immutable as
+      $$ select (string_to_array($1,'/'))[1:array_length(string_to_array($1,'/'),1)-1] $$;
+    alter table storage.objects enable row level security;
+    grant usage on schema storage to authenticated;
+    grant select,insert,delete on storage.objects to authenticated;
+  `);
+  await db.exec(await readFile(new URL('../supabase/migrations/0019_task_photos.sql',import.meta.url),'utf8'));
+  await query("update public.task_types set hidden=false,hidden_user_ids='{}' where id=$1",[type]);
+  await query("update public.rooms set archived_at=null where id=$1",[room]);
+  const photo=randomUUID(), path=task+'/'+admin+'/'+photo+'.jpg';
+  await login(admin);
+  const before=await first('select progress from public.room_tasks where id=$1',[task]);
+  await query("insert into storage.objects values('task-photos',$1)",[path]);
+  await query("insert into public.task_photos(id,project_id,room_task_id,uploaded_by,storage_path,needs_review) values($1,$2,$3,$4,$5,true)",[photo,project,task,admin,path]);
+  assert.deepEqual(await first('select progress from public.room_tasks where id=$1',[task]),before);
+  assert.equal((await query('select id from public.task_photos where id=$1',[photo])).length,1);
+  await query("delete from storage.objects where name=$1",[path]);
+  assert.equal((await query("select name from storage.objects where name=$1",[path])).length,1);
+  await login(viewer);
+  assert.equal((await query('select id from public.task_photos where id=$1',[photo])).length,1);
+  assert.equal((await first('select private.can_add_task_photo($1) allowed',[task])).allowed,false);
+  await reject("insert into storage.objects values('task-photos',$1)",[task+'/'+viewer+'/'+randomUUID()+'.jpg'],/row-level security/);
+  await login(outsider);
+  assert.equal((await query('select id from public.task_photos where id=$1',[photo])).length,0);
+  await db.exec('reset role');
+  await login(admin);
+  await db.exec('reset role');
+  await query("update public.task_types set hidden_user_ids=$2 where id=$1",[type,[admin]]);
+  await login(admin);
+  assert.equal((await query('select id from public.task_photos where id=$1',[photo])).length,0);
+  assert.equal((await query("select name from storage.objects where name=$1",[path])).length,0);
+  assert.equal((await first('select private.can_add_task_photo($1) allowed',[task])).allowed,false);
+ });
+ });
+
+
+
