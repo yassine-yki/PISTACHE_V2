@@ -1,4 +1,5 @@
 import type { jsPDF } from "jspdf";
+import { zipSync } from "fflate";
 
 export type DailyProgressLine = {
   taskId:string;
@@ -80,10 +81,12 @@ async function svgPng(svg:string):Promise<string> {
 function drawHeader(pdf:jsPDF,dateLabel:string,floorLabel:string,continued=false):number {
   pdf.setFillColor(39,83,47);pdf.rect(0,0,297,18,"F");
   pdf.setTextColor(255,255,255);pdf.setFont("helvetica","bold");pdf.setFontSize(15);
-  pdf.text("MUC - Avancement journalier",12,11.5);
+  pdf.text("MUC - Avancement journalier",33,11.5);
   pdf.setFont("helvetica","normal");pdf.setFontSize(9);pdf.text(dateLabel,285,11.2,{align:"right"});
   pdf.setTextColor(26,42,33);pdf.setFont("helvetica","bold");pdf.setFontSize(13);
-  pdf.text(`${floorLabel}${continued ? " - suite" : ""}`,12,27);
+  const title=safeText(`${floorLabel}${continued ? " - suite" : ""}`);
+  while(pdf.getTextWidth(title)>273 && pdf.getFontSize()>8)pdf.setFontSize(pdf.getFontSize()-0.5);
+  pdf.text(title,12,27);
   return 32;
 }
 
@@ -119,7 +122,7 @@ function drawRows(pdf:jsPDF,lines:DailyProgressLine[],startIndex:number,y:number
 
 function columnFont(_values:string[]):"normal" { return "normal"; }
 
-export async function downloadDailyProgressPdf(date:Date,floors:DailyFloorReport[]):Promise<void> {
+export async function buildDailyProgressPdf(date:Date,floors:DailyFloorReport[],logo:Uint8Array):Promise<Uint8Array> {
   const {jsPDF}=await import("jspdf");
   const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4",compress:true});
   const dateLabel=new Intl.DateTimeFormat("fr-FR",{timeZone:"Africa/Casablanca",weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(date);
@@ -144,10 +147,33 @@ export async function downloadDailyProgressPdf(date:Date,floors:DailyFloorReport
   }
   const pages=pdf.getNumberOfPages();
   for(let page=1;page<=pages;page++) {
-    pdf.setPage(page);pdf.setFont("helvetica","normal");pdf.setFontSize(7);pdf.setTextColor(105,115,109);
+    pdf.setPage(page);
+    const image=pdf.getImageProperties(logo);
+    const scale=Math.min(18/image.width,14/image.height);
+    pdf.addImage(logo,"PNG",12,2,image.width*scale,image.height*scale,"muc-logo");
+    pdf.setFont("helvetica","normal");pdf.setFontSize(7);pdf.setTextColor(105,115,109);
     pdf.text(`Projet MUC - ${dateLabel}`,12,205);pdf.text(`Page ${page} / ${pages}`,285,205,{align:"right"});
   }
-  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca",year:"numeric",month:"2-digit",day:"2-digit"})
-    .formatToParts(date).filter(part=>part.type!=="literal").map(part=>[part.type,part.value]));
-  pdf.save(`Projet-MUC-avancement-journalier-${parts.year}-${parts.month}-${parts.day}.pdf`);
+  return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+export type DailySubtaskReport = {id:string;label:string;floors:DailyFloorReport[]};
+export async function downloadDailyProgressPdfs(date:Date,reports:DailySubtaskReport[]):Promise<void> {
+  if(!reports.length)throw new Error("Aucune sous-tâche visible à exporter.");
+  const response=await fetch("/muc-building.png");
+  if(!response.ok)throw new Error("Le logo du projet est indisponible.");
+  const logo=new Uint8Array(await response.arrayBuffer());
+  const files:Record<string,Uint8Array>={};
+  for(const [index,report] of reports.entries()) {
+    const name=report.label.replace(/[<>:"/\\|?*\x00-\x1f]/g,"-").slice(0,140);
+    files[`${String(index+1).padStart(2,"0")}-${name}.pdf`]=await buildDailyProgressPdf(date,report.floors,logo);
+  }
+  const bytes=zipSync(files,{level:0});
+  const blob=new Blob([new Uint8Array(bytes).buffer],{type:"application/zip"});
+  const url=URL.createObjectURL(blob),link=document.createElement("a");
+  link.href=url;
+  const day=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca"}).format(date);
+  link.download=`MUC-PDF-par-sous-tache-${day}.zip`;
+  document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

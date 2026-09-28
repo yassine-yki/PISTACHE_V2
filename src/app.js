@@ -4,7 +4,7 @@ import { createProjectRepository } from "./repositories/index.js";
 import { ROOMS_BY_FLOOR } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
 import { downloadProgressWorkbook } from "./excel-export.js";
-import { dailyProgressLines, downloadDailyProgressPdf } from "./pdf-export.js";
+import { dailyProgressLines, downloadDailyProgressPdfs } from "./pdf-export.js";
 import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
 
@@ -1404,27 +1404,28 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
       return visibleTypes.has(`${zone}:${code}`);
     });
     const lines=dailyProgressLines(history,visibleTasks,describe);
-    if(!lines.length)throw new Error("Aucun avancement positif enregistré aujourd’hui sur les tâches visibles.");
     const floorDefinitions=[...(activeProjectDefinition?.floors||[])].sort((a,b)=>a.id.localeCompare(b.id,"fr",{numeric:true}));
-    const changedFloors=new Set(lines.map(line=>line.floorCode));
     const floorModels=new Map();
-    for(const floor of floorDefinitions)if(changedFloors.has(floor.id))floorModels.set(floor.id,await reportFloorModel(floor));
+    for(const floor of floorDefinitions)floorModels.set(floor.id,await reportFloorModel(floor));
     const zoneOrder={bedroom:0,bathroom:1,loggia:2};
     const orderedTypes=[...(cloud.snapshot.taskTypes||[])].filter(type=>!type.hidden).sort((a,b)=>(zoneOrder[a.zone]??3)-(zoneOrder[b.zone]??3)
       || Number(a.sort_order||0)-Number(b.sort_order||0)||a.label.localeCompare(b.label,"fr",{numeric:true}));
     const taskByKey=new Map(visibleTasks.map(task=>[task.key,task]));
     const taskById=new Map(visibleTasks.map(task=>[task.id,task]));
     const reports=[];
-    for(const type of orderedTypes)for(const floor of floorDefinitions) {
+    for(const type of orderedTypes) {
+      const floors=[];
+      for(const floor of floorDefinitions) {
       const sectionLines=lines.filter(line=>line.floorCode===floor.id&&line.zone===type.zone&&taskById.get(line.taskId)?.key.endsWith(`:${type.code}`));
-      if(!sectionLines.length)continue;
       const definition=tasksByZone[type.zone]?.find(entry=>entry.id===type.code);
       const group=type.group_label||(definition?taskGroup(type.zone,definition.sourceColumn):"Tâche");
       const model=floorModels.get(floor.id);if(!model)continue;
-      reports.push({code:`${floor.id}:${type.zone}:${type.code}`,label:`${floor.label} - ${group} - ${type.label}`,planSvg:reportPlanSvg(model,type.zone,type.code,taskByKey),lines:sectionLines});
+      floors.push({code:`${floor.id}:${type.zone}:${type.code}`,label:`${floor.label} - ${group} - ${type.label}`,planSvg:reportPlanSvg(model,type.zone,type.code,taskByKey),lines:sectionLines});
     }
-    await downloadDailyProgressPdf(reportDate,reports);
-    document.querySelector("#saveStatus").textContent="Rapport PDF journalier téléchargé";
+      reports.push({id:type.id,label:`${type.zone==="bathroom"?"SDB":"Chambre"} - ${type.label}`,floors});
+    }
+    await downloadDailyProgressPdfs(reportDate,reports);
+    document.querySelector("#saveStatus").textContent="Archive téléchargée : un PDF par sous-tâche, avec les quatre étages";
   } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
   finally {button.disabled=false;button.textContent=label;}
 };
