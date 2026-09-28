@@ -3,6 +3,7 @@ import { cleanDxfText, roomNumberFromText } from "./dxf-identification.js";
 import { createProjectRepository } from "./repositories/index.js";
 import { ROOMS_BY_FLOOR } from "./project-data.js";
 import { PROJECT_CATALOG } from "./project-catalog.js";
+import { downloadProgressWorkbook } from "./excel-export.js";
 import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
 
@@ -1334,6 +1335,19 @@ document.querySelector("#adminNavigation").onclick=async(event)=>{
     document.querySelector("#saveStatus").textContent=message;
     if(adminPage==="history")document.querySelector("#activityList").innerHTML='<p class="empty-state">'+escapeSvgText(message)+'</p>';
   }
+};
+document.querySelector("#exportExcel").onclick=async(event)=>{
+  if(!cloud?.snapshot || currentUser?.role!=="admin")return;
+  const button=event.currentTarget;const label=button.textContent;
+  button.disabled=true;button.textContent="Préparation…";
+  document.querySelector("#saveStatus").textContent="Actualisation des résultats avant export…";
+  try{
+    const synced=await syncCloud({refresh:true});
+    if(!synced)throw new Error("La synchronisation doit réussir avant l’export.");
+    await downloadProgressWorkbook(cloud.snapshot.tasks);
+    document.querySelector("#saveStatus").textContent="Export Excel téléchargé";
+  }catch(error){document.querySelector("#saveStatus").textContent="Export impossible : "+cloudErrorMessage(error);}
+  finally{button.disabled=false;button.textContent=label;}
 };
 function profileResponsibilityHtml() {
   if(currentUser?.role==="admin")return '<p class="profile-scope-summary">Accès administrateur à tout le projet, sauf aux tâches qui vous sont explicitement masquées.</p>';

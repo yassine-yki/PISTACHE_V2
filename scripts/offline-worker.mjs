@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 
 export async function writeOfflineWorker(directory) {
-  const files=["index.html","favicon.svg","vendor/dxf-parser.js"];
+  const files=["index.html","favicon.svg","vendor/dxf-parser.js","mixed-use-avancement-template.xlsx"];
   for(const file of await readdir(resolve(directory,"assets"))) if(/\.(js|css)$/.test(file)) files.push("assets/"+file);
   const digest=createHash("sha256");
   for(const file of files) digest.update(await readFile(resolve(directory,file)));
