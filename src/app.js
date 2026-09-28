@@ -1351,22 +1351,19 @@ document.querySelector("#exportExcel").onclick=async(event)=>{
   }catch(error){document.querySelector("#saveStatus").textContent="Export impossible : "+cloudErrorMessage(error);}
   finally{button.disabled=false;button.textContent=label;}
 };
-function currentPlanSvg() {
-  const source=elements.dxfPlan;
-  const viewBox=source.getAttribute("viewBox");
-  if(!viewBox || !source.childElementCount)throw new Error("Le plan DXF affiché n’est pas encore disponible.");
-  const [, , widthText, heightText]=viewBox.split(/\s+/);
-  const width=Number(widthText),height=Number(heightText);
-  const clone=source.cloneNode(true);
-  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
-  clone.setAttribute("width","1800");
-  clone.setAttribute("height",String(Math.max(600,Math.round(1800/Math.max(.1,width/height)))));
-  clone.setAttribute("preserveAspectRatio","xMidYMid meet");
-  clone.querySelectorAll("[tabindex],[role],[aria-label]").forEach(node=>{
-    node.removeAttribute("tabindex");node.removeAttribute("role");node.removeAttribute("aria-label");
-  });
-  const style=document.createElementNS("http://www.w3.org/2000/svg","style");
-  style.textContent=`
+function reportPlanSvg(model,zone,code,taskByKey) {
+  const width=model.bounds.maxX-model.bounds.minX,height=model.bounds.maxY-model.bounds.minY;
+  const zonePaths=model.rooms.map(room=>{
+    const record=taskByKey.get(`${room.number}:${zone}:${code}`)?.record;
+    const className=record?statusClass(record):"unassigned";
+    let paths=[];
+    if(zone==="bathroom")paths=room.bathrooms.map(polygon=>pointsPath(polygon,true));
+    if(zone==="bedroom"&&room.polygon)paths=[`${pointsPath(room.polygon,true)} ${[...room.bathrooms,...room.loggias].map(polygon=>pointsPath(polygon,true)).join(" ")}`];
+    return paths.map(path=>`<path class="dxf-zone ${className}" d="${path}" fill-rule="evenodd"/>`).join("");
+  }).join("");
+  const labelSize=Math.max(.32,Math.min(.55,height*.012));
+  const labels=model.rooms.map(room=>`<text class="dxf-label" x="${numberValue(room.labelPoint.x)}" y="${numberValue(-room.labelPoint.y)}" font-size="${numberValue(labelSize)}" text-anchor="middle">${room.number}</text>`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="${Math.max(600,Math.round(1800/Math.max(.1,width/height)))}" viewBox="${numberValue(model.bounds.minX)} ${numberValue(-model.bounds.maxY)} ${numberValue(width)} ${numberValue(height)}" preserveAspectRatio="xMidYMid meet"><style>
     .dxf-line{vector-effect:non-scaling-stroke;stroke:#4d5653;stroke-width:.7;fill:none}
     .dxf-detail{vector-effect:non-scaling-stroke;stroke:#626d68;stroke-width:.55;fill:none}
     .dxf-annotation{fill:#3c6590;font-family:Arial,sans-serif;font-weight:500}
@@ -1376,14 +1373,15 @@ function currentPlanSvg() {
     .dxf-zone.status-in-progress{fill:#e38b22;stroke:#a75e0d}
     .dxf-zone.status-done{fill:#16835d;stroke:#0e5e43}
     .dxf-zone.status-blocked{fill:#8f334e;stroke:#672037}
-    .dxf-zone.filtered-out{fill:#b9c2be;stroke:#8c9993;fill-opacity:.4}
-    .dxf-zone.selected{fill-opacity:.72;stroke-width:1.1}
-    .dxf-label,.dxf-loggia-label{font-family:Arial,sans-serif;fill:#173c3e;paint-order:stroke;stroke:#fff;stroke-width:.12;font-weight:700}
-    .dxf-room-marker.filtered-out .dxf-label,.dxf-loggia-label.filtered-out{fill:#9ba7a1}
-    .dxf-room-hit{fill:none;stroke:none}
-  `;
-  clone.prepend(style);
-  return new XMLSerializer().serializeToString(clone);
+    .dxf-label{font-family:Arial,sans-serif;fill:#173c3e;paint-order:stroke;stroke:#fff;stroke-width:.12;font-weight:700}
+  </style><rect x="${numberValue(model.bounds.minX)}" y="${numberValue(-model.bounds.maxY)}" width="${numberValue(width)}" height="${numberValue(height)}" fill="#fff"/><g transform="scale(1 -1)">${model.architecture}</g><g transform="scale(1 -1)">${zonePaths}</g><g>${model.annotations}${labels}</g></svg>`;
+}
+async function reportFloorModel(floor) {
+  if(!floor.dxfPath)throw new Error(`Le plan ${floor.label} n’est pas configuré.`);
+  const response=await fetch(`${floor.dxfPath}?v=${encodeURIComponent(String(floor.updatedAt||""))}`);
+  if(!response.ok)throw new Error(`Le plan ${floor.label} est indisponible (${response.status}).`);
+  const source=await response.text();
+  return buildDxfModel(new window.DxfParser().parseSync(source),layoutViewBounds(source));
 }
 document.querySelector("#exportDailyPdf").onclick=async(event)=>{
   if(!cloud?.snapshot || currentUser?.role!=="admin")return;
@@ -1406,10 +1404,26 @@ document.querySelector("#exportDailyPdf").onclick=async(event)=>{
       return visibleTypes.has(`${zone}:${code}`);
     });
     const lines=dailyProgressLines(history,visibleTasks,describe);
-    const floor=floorDefinition();
-    if(!floor)throw new Error("Aucun étage sélectionné.");
-    const floorLines=lines.filter(line=>line.floorCode===floor.id);
-    await downloadDailyProgressPdf(reportDate,[{code:floor.id,label:floor.label,planSvg:currentPlanSvg(),lines:floorLines}]);
+    if(!lines.length)throw new Error("Aucun avancement positif enregistré aujourd’hui sur les tâches visibles.");
+    const floorDefinitions=[...(activeProjectDefinition?.floors||[])].sort((a,b)=>a.id.localeCompare(b.id,"fr",{numeric:true}));
+    const changedFloors=new Set(lines.map(line=>line.floorCode));
+    const floorModels=new Map();
+    for(const floor of floorDefinitions)if(changedFloors.has(floor.id))floorModels.set(floor.id,await reportFloorModel(floor));
+    const zoneOrder={bedroom:0,bathroom:1,loggia:2};
+    const orderedTypes=[...(cloud.snapshot.taskTypes||[])].filter(type=>!type.hidden).sort((a,b)=>(zoneOrder[a.zone]??3)-(zoneOrder[b.zone]??3)
+      || Number(a.sort_order||0)-Number(b.sort_order||0)||a.label.localeCompare(b.label,"fr",{numeric:true}));
+    const taskByKey=new Map(visibleTasks.map(task=>[task.key,task]));
+    const taskById=new Map(visibleTasks.map(task=>[task.id,task]));
+    const reports=[];
+    for(const type of orderedTypes)for(const floor of floorDefinitions) {
+      const sectionLines=lines.filter(line=>line.floorCode===floor.id&&line.zone===type.zone&&taskById.get(line.taskId)?.key.endsWith(`:${type.code}`));
+      if(!sectionLines.length)continue;
+      const definition=tasksByZone[type.zone]?.find(entry=>entry.id===type.code);
+      const group=type.group_label||(definition?taskGroup(type.zone,definition.sourceColumn):"Tâche");
+      const model=floorModels.get(floor.id);if(!model)continue;
+      reports.push({code:`${floor.id}:${type.zone}:${type.code}`,label:`${floor.label} - ${group} - ${type.label}`,planSvg:reportPlanSvg(model,type.zone,type.code,taskByKey),lines:sectionLines});
+    }
+    await downloadDailyProgressPdf(reportDate,reports);
     document.querySelector("#saveStatus").textContent="Rapport PDF journalier téléchargé";
   } catch(error) { document.querySelector("#saveStatus").textContent="Export PDF impossible : "+cloudErrorMessage(error); }
   finally {button.disabled=false;button.textContent=label;}

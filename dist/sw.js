@@ -1,6 +1,6 @@
-const CACHE="pistache-shell-fb20a2ef7643e6f7";
+const CACHE="pistache-shell-68ebf80e1194acc4";
 const PLAN_CACHE='pistache-plans-v1';
-const FILES=["/index.html","/favicon.svg","/vendor/dxf-parser.js","/mixed-use-avancement-template.xlsx","/assets/html2canvas-Dm2hhNLn.js","/assets/index-CNsKTIep.js","/assets/index-Dnqxwbmb.css","/assets/index.es-jQ_-ekXo.js","/assets/jspdf.es.min-CvgNRi7_.js","/assets/purify.es-Bvo9QlJ8.js"];
+const FILES=["/index.html","/favicon.svg","/vendor/dxf-parser.js","/mixed-use-avancement-template.xlsx","/assets/html2canvas-3wCcW308.js","/assets/index-BNYNo8kC.js","/assets/index-Dnqxwbmb.css","/assets/index.es-4AnyAuu8.js","/assets/jspdf.es.min-CC8SFMa8.js","/assets/purify.es-Bvo9QlJ8.js"];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('pistache-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
