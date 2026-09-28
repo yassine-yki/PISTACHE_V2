@@ -30,3 +30,22 @@ test("Excel export preserves the template and writes current progress for every 
   assert.equal(Object.keys(output).filter(name=>name.startsWith("xl/charts/")).length,
     Object.keys(input).filter(name=>name.startsWith("xl/charts/")).length);
 });
+
+test("Excel export removes graph blocks for hidden tasks and recalculates partial groups",async()=>{
+  const template=new Uint8Array(await readFile(join(process.cwd(),"public","mixed-use-avancement-template.xlsx")));
+  const visible=["F","K","L","M","O","P","Q","Z","AN","AR","AS","AX","AY","AZ","BA","BC","BD","BE","BF","BG","BH"];
+  const output=unzipSync(buildProgressWorkbook(template,[],visible));
+  const bathroom=strFromU8(output["xl/worksheets/sheet3.xml"]);
+  const bedroom=strFromU8(output["xl/worksheets/sheet4.xml"]);
+
+  assert.doesNotMatch(bathroom,/<c\b[^>]*\br="I3"/); // Cloisons SDB is entirely hidden.
+  assert.doesNotMatch(bathroom,/<mergeCell\b[^>]*\bref="I3:O3"/);
+  assert.match(bathroom,/SUM\('Suivi des Chambres'!F5:F44\)\/\(COUNT\('Suivi des Chambres'!\$D\$5:\$D\$44\)\*1\)/);
+  assert.match(bathroom,/SUM\('Suivi des Chambres'!F109:F133\)/);
+  assert.doesNotMatch(bathroom,/<c\b[^>]*\br="I15"/); // Peinture FP is entirely hidden.
+
+  assert.doesNotMatch(bedroom,/<c\b[^>]*\br="I3"/); // Électricité cloisons is entirely hidden.
+  assert.match(bedroom,/SUM\('Suivi des Chambres'!AS5:AS44,'Suivi des Chambres'!AX5:AZ44\)/);
+  assert.match(bedroom,/SUM\('Suivi des Chambres'!BA5:BA44,'Suivi des Chambres'!BC5:BC44\)/);
+  assert.doesNotMatch(bedroom,/<c\b[^>]*\br="I21"/); // Réception is hidden / invalid in the source workbook.
+});

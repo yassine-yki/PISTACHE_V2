@@ -3,9 +3,11 @@ import { tasksByZone, type ProgressRecord } from "./model.js";
 
 const TEMPLATE_PATH = "/mixed-use-avancement-template.xlsx";
 const TRACKING_SHEET = "xl/worksheets/sheet2.xml";
+const GRAPH_SHEETS = ["xl/worksheets/sheet3.xml", "xl/worksheets/sheet4.xml"];
 const allTaskColumns = Object.values(tasksByZone).flatMap(tasks => tasks.map(task => task.sourceColumn));
 
 export type ExcelProgressTask = { key: string; active: boolean; record: ProgressRecord };
+export type ExcelExportOptions = { visibleColumns?: Iterable<string>; date?: Date };
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -69,7 +71,90 @@ function requestFullCalculation(xml: string): string {
   });
 }
 
-export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgressTask[]): Uint8Array {
+function columnNumber(column:string):number {
+  return [...column].reduce((value,letter)=>value*26+letter.charCodeAt(0)-64,0);
+}
+
+function columnName(number:number):string {
+  let result="";
+  for(let value=number;value>0;value=Math.floor((value-1)/26))result=String.fromCharCode((value-1)%26+65)+result;
+  return result;
+}
+
+function columnsBetween(first:string,last:string):string[] {
+  const columns:string[]=[];
+  for(let index=columnNumber(first);index<=columnNumber(last);index++)columns.push(columnName(index));
+  return columns;
+}
+
+function contiguousRanges(columns:string[]):[string,string][] {
+  const ranges:[string,string][]=[];
+  for(const column of columns) {
+    const previous=ranges.at(-1);
+    if(previous && columnNumber(column)===columnNumber(previous[1])+1)previous[1]=column;
+    else ranges.push([column,column]);
+  }
+  return ranges;
+}
+
+function graphBlockXml(xml:string,startColumn:string,titleRow:number):string {
+  const start=columnNumber(startColumn),end=start+6,lastRow=titleRow+4;
+  return [...xml.matchAll(/<c\b(?=[^>]*\br="([A-Z]+)(\d+)")[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g)]
+    .filter(match=>{
+      const column=columnNumber(match[1]),row=Number(match[2]);
+      return column>=start&&column<=end&&row>=titleRow&&row<=lastRow;
+    }).map(match=>match[0]).join("");
+}
+
+function removeGraphBlock(xml:string,startColumn:string,titleRow:number):string {
+  const start=columnNumber(startColumn),end=start+6,lastRow=titleRow+4;
+  const outside=(reference:string)=>{
+    const match=reference.match(/^([A-Z]+)(\d+)$/);
+    if(!match)return true;
+    const column=columnNumber(match[1]),row=Number(match[2]);
+    return column<start||column>end||row<titleRow||row>lastRow;
+  };
+  return xml
+    .replace(/<c\b(?=[^>]*\br="([A-Z]+)(\d+)")[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,(cell,_column,_row)=>outside(`${_column}${_row}`)?cell:"")
+    .replace(/<mergeCell\b[^>]*\bref="([A-Z]+\d+):([A-Z]+\d+)"[^>]*\/>/g,(merge,first,last)=>outside(first)||outside(last)?merge:"");
+}
+
+function filterGraphFormula(formula:string,visibleColumns:Set<string>):string {
+  return formula.replace(
+    /SUM\('Suivi des Chambres'!([A-Z]+)(\d+):([A-Z]+)(\d+)\)\/\(COUNT\('Suivi des Chambres'!\$D\$(\d+):\$D\$(\d+)\)\*COLUMNS\('Suivi des Chambres'![A-Z]+:[A-Z]+\)\)/g,
+    (_match,first,startRow,last,endRow,countStart,countEnd)=>{
+      const visible=columnsBetween(first,last).filter(column=>visibleColumns.has(column));
+      const ranges=contiguousRanges(visible).map(([rangeStart,rangeEnd])=>
+        `'Suivi des Chambres'!${rangeStart}${startRow}:${rangeEnd}${endRow}`);
+      return `SUM(${ranges.join(",")})/(COUNT('Suivi des Chambres'!$D$${countStart}:$D$${countEnd})*${visible.length})`;
+    },
+  );
+}
+
+function filterGraphSheet(xml:string,visibleColumns:Set<string>):string {
+  const starts=["A","I","Q"];
+  for(let titleRow=3;titleRow<=33;titleRow+=6) {
+    for(const startColumn of starts) {
+      const block=graphBlockXml(xml,startColumn,titleRow);
+      if(!block)continue;
+      const source=block.match(/'Suivi des Chambres'!([A-Z]+)\d+:([A-Z]+)\d+/);
+      if(!source || !columnsBetween(source[1],source[2]).some(column=>visibleColumns.has(column))) {
+        xml=removeGraphBlock(xml,startColumn,titleRow);
+        continue;
+      }
+      const start=columnNumber(startColumn),end=start+6,lastRow=titleRow+4;
+      xml=xml.replace(/<c\b(?=[^>]*\br="([A-Z]+)(\d+)")[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,(cell,column,row)=>{
+        const number=columnNumber(column),rowNumber=Number(row);
+        return number>=start&&number<=end&&rowNumber>=titleRow&&rowNumber<=lastRow
+          ? cell.replace(/<f>([\s\S]*?)<\/f>/g,(_formulaTag,formula)=>`<f>${filterGraphFormula(formula,visibleColumns)}</f>`)
+          : cell;
+      });
+    }
+  }
+  return xml;
+}
+
+export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgressTask[], visibleColumns:Iterable<string>=allTaskColumns): Uint8Array {
   const files=unzipSync(template);
   if(!files[TRACKING_SHEET]) throw new Error("La feuille Suivi des Chambres est absente du modèle.");
   let sheet=appendRoom525(strFromU8(files[TRACKING_SHEET]));
@@ -94,10 +179,16 @@ export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgress
   sheet=setNumericCells(sheet,values);
   files[TRACKING_SHEET]=strToU8(sheet);
 
+  const visible=new Set(visibleColumns);
+  for(const name of GRAPH_SHEETS) {
+    if(files[name])files[name]=strToU8(filterGraphSheet(strFromU8(files[name]),visible));
+  }
+
   // Extend formulas and chart sources to include the added R+5 room.
   for(const [name,content] of Object.entries(files)) {
     if(!name.endsWith(".xml") || name===TRACKING_SHEET) continue;
     let xml=strFromU8(content);
+    if(GRAPH_SHEETS.includes(name))xml=xml.replace(/('Suivi des Chambres'![A-Z]+109:[A-Z]+)132/g,"$1"+"133");
     if(xml.includes("$132")) xml=xml.replace(/\$132/g,"$133");
     if(name==="xl/workbook.xml") xml=requestFullCalculation(xml);
     files[name]=strToU8(xml);
@@ -106,16 +197,16 @@ export function buildProgressWorkbook(template: Uint8Array, tasks: ExcelProgress
   return zipSync(files,{level:6});
 }
 
-export async function downloadProgressWorkbook(tasks: ExcelProgressTask[], date=new Date()): Promise<void> {
+export async function downloadProgressWorkbook(tasks: ExcelProgressTask[], options:ExcelExportOptions={}): Promise<void> {
   const response=await fetch(TEMPLATE_PATH,{cache:"no-cache"});
   if(!response.ok) throw new Error(`Modèle Excel indisponible (${response.status}).`);
-  const output=buildProgressWorkbook(new Uint8Array(await response.arrayBuffer()),tasks);
+  const output=buildProgressWorkbook(new Uint8Array(await response.arrayBuffer()),tasks,options.visibleColumns);
   const bytes=new Uint8Array(output.byteLength);bytes.set(output);
   const blob=new Blob([bytes.buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
   const url=URL.createObjectURL(blob);
   const link=document.createElement("a");
   link.href=url;
-  link.download=`Projet-MUC-avancement-${new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca"}).format(date)}.xlsx`;
+  link.download=`Projet-MUC-avancement-${new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca"}).format(options.date || new Date())}.xlsx`;
   document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

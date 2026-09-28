@@ -1344,7 +1344,8 @@ document.querySelector("#exportExcel").onclick=async(event)=>{
   try{
     const synced=await syncCloud({refresh:true});
     if(!synced)throw new Error("La synchronisation doit réussir avant l’export.");
-    await downloadProgressWorkbook(cloud.snapshot.tasks);
+    const visibleColumns=(cloud.snapshot.taskTypes || []).map(type=>type.source_column).filter(Boolean);
+    await downloadProgressWorkbook(cloud.snapshot.tasks,{visibleColumns});
     document.querySelector("#saveStatus").textContent="Export Excel téléchargé";
   }catch(error){document.querySelector("#saveStatus").textContent="Export impossible : "+cloudErrorMessage(error);}
   finally{button.disabled=false;button.textContent=label;}
