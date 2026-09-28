@@ -1473,7 +1473,19 @@ async function initializeAccess() {
 void initializeAccess();
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(error => console.error("Cache hors connexion indisponible", error));
+  // Ask the browser to check the worker itself on every load. When an already
+  // controlled tab receives a newer worker, reload once so it cannot keep
+  // running an obsolete application bundle after a deployment.
+  const controlledAtStartup=Boolean(navigator.serviceWorker.controller);
+  let reloadingForUpdate=false;
+  if(controlledAtStartup)navigator.serviceWorker.addEventListener("controllerchange",()=>{
+    if(reloadingForUpdate)return;
+    reloadingForUpdate=true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"})
+    .then(registration=>registration.update())
+    .catch(error => console.error("Cache hors connexion indisponible", error));
 }
 
 // Presentation only: collapse secondary filters on narrow screens.

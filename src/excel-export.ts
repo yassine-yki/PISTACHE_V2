@@ -236,7 +236,11 @@ export async function downloadProgressWorkbook(tasks: ExcelProgressTask[], optio
   const url=URL.createObjectURL(blob);
   const link=document.createElement("a");
   link.href=url;
-  link.download=`Projet-MUC-avancement-${new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Casablanca"}).format(options.date || new Date())}.xlsx`;
+  const exportedAt=options.date || new Date();
+  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{
+    timeZone:"Africa/Casablanca",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23",
+  }).formatToParts(exportedAt).filter(part=>part.type!=="literal").map(part=>[part.type,part.value]));
+  link.download=`Projet-MUC-avancement-${parts.year}-${parts.month}-${parts.day}-${parts.hour}${parts.minute}${parts.second}.xlsx`;
   document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
