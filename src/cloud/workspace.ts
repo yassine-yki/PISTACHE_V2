@@ -155,6 +155,29 @@ export class CloudWorkspace {
     if(!this.snapshot) throw new Error("Aucun projet ouvert.");
     return this.exclusive(()=>this.engine.confirmDrafts(this.snapshot!.projectId));
   }
+  async retryInvalidOperations() {
+    if(!this.snapshot)throw new Error("Aucun projet ouvert.");
+    const projectId=this.snapshot.projectId;
+    return this.exclusive(async()=>{
+      const rejected=(await this.engine.operations(projectId)).filter(operation=>operation.state==="rejected"&&operation.error==="invalid_payload");
+      if(!rejected.length)return 0;
+      await this.refresh(projectId);
+      const latestByTask=new Map<string,Operation>();
+      for(const operation of rejected.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)))latestByTask.set(operation.taskId,operation);
+      let queued=0;
+      for(const operation of latestByTask.values()){
+        const task=this.snapshot!.tasks.find(item=>item.id===operation.taskId||item.key===operation.key);if(!task)continue;
+        await this.engine.discard(projectId,operation.taskId);
+        const raw=operation.payload as any,progress=Math.max(0,Math.min(100,Number(raw.progress)||0));
+        const record={progress,blocked:raw.blocked===true,note:typeof raw.note==="string"?raw.note:"",
+          startDate:typeof raw.start_date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(raw.start_date)?raw.start_date:"",
+          endDate:typeof raw.end_date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(raw.end_date)?raw.end_date:""};
+        const correction=progress<task.record.progress?{reason:"input-error",note:""}:null;
+        await this.engine.enqueue(projectId,task.key,record,correction,undefined,task.version,false);queued++;
+      }
+      return queued;
+    });
+  }
   async sync(refreshAfter = true) {
     if (!this.snapshot) return;
     const projectId=this.snapshot.projectId;

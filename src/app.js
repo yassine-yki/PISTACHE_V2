@@ -1184,11 +1184,12 @@ function activityChanges(before={},after={}) {
   if((before.end_date || "")!==(after.end_date || ""))changes.push(`Fin : ${after.end_date || "retirée"}`);
   return changes.length ? changes : ["Mise à jour enregistrée"];
 }
-async function syncCloud({refresh=true,closeDialog=false,refreshActivity=false}={}) {
+async function syncCloud({refresh=true,closeDialog=false,refreshActivity=false,retryInvalid=false}={}) {
   if(!cloud?.snapshot || synchronizing || !navigator.onLine) { await renderSync(); return; }
   const workspace=cloud; synchronizing=true;
   try {
     await saveQueue;
+    if(retryInvalid)await workspace.retryInvalidOperations();
     await workspace.sync(refresh);
     if(cloud!==workspace) return;
     currentUser={...workspace.user,role:workspace.snapshot.role};
@@ -1550,7 +1551,7 @@ document.querySelector("#loginForm").onsubmit=async(event)=>{
 
 document.querySelector("#syncButton").onclick=()=>{document.querySelector("#syncDialog").showModal();void renderSync();};
 document.querySelector("#closeSync").onclick=()=>document.querySelector("#syncDialog").close();
-document.querySelector("#retrySync").onclick=()=>void syncCloud({refresh:false,closeDialog:true,refreshActivity:true});
+document.querySelector("#retrySync").onclick=()=>void syncCloud({refresh:true,closeDialog:true,refreshActivity:true,retryInvalid:true});
 document.querySelector("#syncProblems").onclick=async(event)=>{
   const button=event.target.closest("[data-discard-task]");if(!button)return;
   if(!confirm("Conserver la valeur du serveur pour cette tâche ? Votre proposition restera archivée localement."))return;
