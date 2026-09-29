@@ -176,9 +176,9 @@ function openMarkupTools(rowId:string){
   const floorRows=rows.filter(item=>item.floor_code===activeFloor).sort((a,b)=>a.sort_order-b.sort_order),select=byId<HTMLSelectElement>("bohMarkupFinish");
   select.innerHTML=floorRows.map(item=>`<option value="${item.id}">${escapeHtml(item.finish_label)}</option>`).join("");select.value=rowId;
   markedRowId=rowId;byId("bohMarkupTitle").textContent=`${row.floor_label} · ${row.finish_label}`;
-  byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");setMarkStatus("done");setShapeKind("rectangle");renderCards();renderMarkup();
+  byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");byId("bohPlanViewport").parentElement?.classList.add("marking");setMarkStatus("done");setShapeKind("rectangle");renderCards();renderMarkup();requestAnimationFrame(fitPlan);
 }
-function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");byId("bohOpenMarkup").hidden=!editable();activeShape=null;polygonPoints=[];}
+function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");byId("bohPlanViewport").parentElement?.classList.remove("marking");byId("bohOpenMarkup").hidden=!editable();activeShape=null;polygonPoints=[];requestAnimationFrame(fitPlan);}
 function normalizedPoint(event:PointerEvent):MarkPoint{
   const rect=byId("bohPlanLayer").getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))];
 }
