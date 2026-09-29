@@ -25,6 +25,7 @@ export const BOH_FINISHES = [
 type MarkPoint=[number,number];
 type ZoneStatus="done"|"progress"|"todo";
 type ShapeKind="rectangle"|"polygon";
+type ToolKind=ShapeKind|"pan"|"erase";
 type MarkShape={kind:ShapeKind;status:ZoneStatus;points:MarkPoint[]};
 type LegacyStroke={mode:"done"|"pending";size:number;points:MarkPoint[]};
 type MarkItem=MarkShape|LegacyStroke;
@@ -38,7 +39,7 @@ let activeFloor="rdc";
 let snapshot:Snapshot|null=null;
 let role="viewer";
 let scale=1,panX=0,panY=0;
-let markedRowId:string|null=null,markStatus:ZoneStatus="done",shapeKind:ShapeKind="rectangle",activeShape:MarkShape|null=null,polygonPoints:MarkPoint[]=[];
+let markedRowId:string|null=null,markStatus:ZoneStatus="done",toolKind:ToolKind="rectangle",activeShape:MarkShape|null=null,polygonPoints:MarkPoint[]=[],erasePoint:MarkPoint|null=null,lastPolygonPointerId:number|null=null;
 const pointers=new Map<number,{x:number;y:number}>();
 let gesture:{distance:number;scale:number;midX:number;midY:number;panX:number;panY:number}|null=null;
 
@@ -166,21 +167,35 @@ function setMarkStatus(next:ZoneStatus){
   for(const [id,status] of [["bohMarkDone","done"],["bohMarkProgress","progress"],["bohMarkTodo","todo"]] as const){const button=byId<HTMLButtonElement>(id);const active=status===next;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));}
   if(activeShape)activeShape.status=next;renderMarkup(activeShape);
 }
-function setShapeKind(next:ShapeKind){
-  shapeKind=next;activeShape=null;polygonPoints=[];
-  for(const [id,kind] of [["bohShapeRectangle","rectangle"],["bohShapePolygon","polygon"]] as const){const button=byId<HTMLButtonElement>(id);const active=kind===next;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));}
-  byId("bohClosePolygon").hidden=next!=="polygon";byId("bohMarkupHelp").textContent=next==="rectangle"?"Rectangle : posez un doigt, tirez puis relâchez.":"Polyligne : touchez chaque sommet, puis le premier point ou « Fermer le contour ».";renderMarkup();
+function setToolKind(next:ToolKind){
+  toolKind=next;activeShape=null;polygonPoints=[];erasePoint=null;lastPolygonPointerId=null;
+  for(const [id,kind] of [["bohShapeRectangle","rectangle"],["bohShapePolygon","polygon"],["bohShapePan","pan"],["bohShapeErase","erase"]] as const){const button=byId<HTMLButtonElement>(id);const active=kind===next;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));}
+  byId("bohClosePolygon").hidden=next!=="polygon";
+  byId("bohMarkupHelp").textContent=next==="rectangle"?"Rectangle : posez un doigt, tirez puis relâchez. Pincez avec deux doigts pour zoomer.":next==="polygon"?"Polyligne : touchez chaque sommet, puis le premier point ou « Fermer le contour ». Pincez à deux doigts pour zoomer.":next==="pan"?"Main : déplacez le plan avec un doigt et pincez avec deux doigts pour zoomer.":"Effacer : touchez une zone colorée pour la supprimer. Pincez à deux doigts pour zoomer.";renderMarkup();
 }
 function openMarkupTools(rowId:string){
   const row=rows.find(item=>item.id===rowId);if(!row||!editable())return;
   const floorRows=rows.filter(item=>item.floor_code===activeFloor).sort((a,b)=>a.sort_order-b.sort_order),select=byId<HTMLSelectElement>("bohMarkupFinish");
   select.innerHTML=floorRows.map(item=>`<option value="${item.id}">${escapeHtml(item.finish_label)}</option>`).join("");select.value=rowId;
   markedRowId=rowId;byId("bohMarkupTitle").textContent=`${row.floor_label} · ${row.finish_label}`;
-  byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");byId("bohPlanViewport").parentElement?.classList.add("marking");setMarkStatus("done");setShapeKind("rectangle");renderCards();renderMarkup();requestAnimationFrame(fitPlan);
+  byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");byId("bohPlanViewport").parentElement?.classList.add("marking");setMarkStatus("done");setToolKind("rectangle");renderCards();renderMarkup();requestAnimationFrame(fitPlan);
 }
-function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");byId("bohPlanViewport").parentElement?.classList.remove("marking");byId("bohOpenMarkup").hidden=!editable();activeShape=null;polygonPoints=[];requestAnimationFrame(fitPlan);}
+function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");byId("bohPlanViewport").parentElement?.classList.remove("marking");byId("bohOpenMarkup").hidden=!editable();activeShape=null;polygonPoints=[];erasePoint=null;lastPolygonPointerId=null;pointers.clear();requestAnimationFrame(fitPlan);}
 function normalizedPoint(event:PointerEvent):MarkPoint{
   const rect=byId("bohPlanLayer").getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))];
+}
+function pointInPolygon(point:MarkPoint,polygon:MarkPoint[]){let inside=false;for(let index=0,previous=polygon.length-1;index<polygon.length;previous=index++){const a=polygon[index],b=polygon[previous];if((a[1]>point[1])!==(b[1]>point[1])&&point[0]<(b[0]-a[0])*(point[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;}
+function distanceToSegment(point:MarkPoint,start:MarkPoint,end:MarkPoint){const dx=end[0]-start[0],dy=end[1]-start[1],length=dx*dx+dy*dy;if(!length)return Math.hypot(point[0]-start[0],point[1]-start[1]);const amount=Math.max(0,Math.min(1,((point[0]-start[0])*dx+(point[1]-start[1])*dy)/length));return Math.hypot(point[0]-(start[0]+amount*dx),point[1]-(start[1]+amount*dy));}
+function containsPoint(item:MarkItem,point:MarkPoint){
+  if("mode" in item)return item.points.some((candidate,index)=>index>0&&distanceToSegment(point,item.points[index-1],candidate)<Math.max(.012,item.size));
+  if(item.kind==="rectangle"){const [a,b]=item.points;return Boolean(a&&b&&point[0]>=Math.min(a[0],b[0])&&point[0]<=Math.max(a[0],b[0])&&point[1]>=Math.min(a[1],b[1])&&point[1]<=Math.max(a[1],b[1]));}
+  return item.points.length>=3&&pointInPolygon(point,item.points);
+}
+function eraseMarkupAt(point:MarkPoint){
+  if(!markedRowId)return;const row=rows.find(item=>item.id===markedRowId);if(!row)return;const markup=current(row).markup;
+  let index=-1;for(let cursor=markup.length-1;cursor>=0;cursor--){if(containsPoint(markup[cursor],point)){index=cursor;break;}}
+  if(index<0){message("Aucune zone de cette finition à cet endroit.",true);return;}
+  setDraft(row.id,{markup:markup.filter((_,cursor)=>cursor!==index)},false);renderMarkup();renderCards();message("Zone effacée. Validez pour partager la modification.");
 }
 function undoMarkup(clear=false){
   if(!markedRowId)return;const row=rows.find(item=>item.id===markedRowId);if(!row)return;
@@ -219,8 +234,10 @@ byId("bohMarkupFinish").addEventListener("change",event=>openMarkupTools((event.
 byId("bohMarkDone").addEventListener("click",()=>setMarkStatus("done"));
 byId("bohMarkProgress").addEventListener("click",()=>setMarkStatus("progress"));
 byId("bohMarkTodo").addEventListener("click",()=>setMarkStatus("todo"));
-byId("bohShapeRectangle").addEventListener("click",()=>setShapeKind("rectangle"));
-byId("bohShapePolygon").addEventListener("click",()=>setShapeKind("polygon"));
+byId("bohShapeRectangle").addEventListener("click",()=>setToolKind("rectangle"));
+byId("bohShapePolygon").addEventListener("click",()=>setToolKind("polygon"));
+byId("bohShapePan").addEventListener("click",()=>setToolKind("pan"));
+byId("bohShapeErase").addEventListener("click",()=>setToolKind("erase"));
 byId("bohClosePolygon").addEventListener("click",closePolygon);
 byId("bohMarkUndo").addEventListener("click",()=>undoMarkup());
 byId("bohMarkClear").addEventListener("click",()=>undoMarkup(true));
@@ -228,12 +245,18 @@ byId("bohMarkClose").addEventListener("click",()=>{closeMarkupTools();renderCard
 byId("bohPlanViewport").addEventListener("wheel",event=>{event.preventDefault();const rect=byId("bohPlanViewport").getBoundingClientRect();zoomAt(scale*(event.deltaY<0?1.12:.89),event.clientX-rect.left,event.clientY-rect.top);},{passive:false});
 byId("bohPlanViewport").addEventListener("pointerdown",event=>{
   if(markedRowId&&event.target===byId("bohMarkupCanvas")){
-    event.preventDefault();const point=normalizedPoint(event);
-    if(shapeKind==="rectangle"){
-      activeShape={kind:"rectangle",status:markStatus,points:[point,point]};renderMarkup(activeShape);byId("bohMarkupCanvas").setPointerCapture(event.pointerId);return;
+    event.preventDefault();pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});byId("bohMarkupCanvas").setPointerCapture(event.pointerId);
+    if(pointers.size>1){
+      if(activeShape?.kind==="rectangle")activeShape=null;
+      if(toolKind==="polygon"&&lastPolygonPointerId!==null){polygonPoints.pop();activeShape=polygonPoints.length?{kind:"polygon",status:markStatus,points:[...polygonPoints]}:null;}
+      erasePoint=null;lastPolygonPointerId=null;gesture=null;renderMarkup(activeShape);return;
     }
+    const point=normalizedPoint(event);
+    if(toolKind==="rectangle"){activeShape={kind:"rectangle",status:markStatus,points:[point,point]};renderMarkup(activeShape);return;}
+    if(toolKind==="pan")return;
+    if(toolKind==="erase"){erasePoint=point;return;}
     if(polygonPoints.length>=3&&Math.hypot(point[0]-polygonPoints[0][0],point[1]-polygonPoints[0][1])<.05){closePolygon();return;}
-    polygonPoints.push(point);activeShape={kind:"polygon",status:markStatus,points:[...polygonPoints]};renderMarkup(activeShape);return;
+    polygonPoints.push(point);lastPolygonPointerId=event.pointerId;activeShape={kind:"polygon",status:markStatus,points:[...polygonPoints]};renderMarkup(activeShape);return;
   }
   // Never capture taps made on the floating controls. Pointer capture on the
   // viewport retargets the following click on touch screens and made these
@@ -242,17 +265,22 @@ byId("bohPlanViewport").addEventListener("pointerdown",event=>{
   pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});byId("bohPlanViewport").setPointerCapture(event.pointerId);
 });
 byId("bohPlanViewport").addEventListener("pointermove",event=>{
-  if(activeShape?.kind==="rectangle"){event.preventDefault();activeShape.points[1]=normalizedPoint(event);renderMarkup(activeShape);return;}
   const previous=pointers.get(event.pointerId);if(!previous)return;pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});const all=[...pointers.values()];
-  if(all.length===1){panX+=event.clientX-previous.x;panY+=event.clientY-previous.y;applyTransform();gesture=null;return;}
-  const [a,b]=all,distance=Math.hypot(a.x-b.x,a.y-b.y),midX=(a.x+b.x)/2,midY=(a.y+b.y)/2,rect=byId("bohPlanViewport").getBoundingClientRect();
-  if(!gesture){gesture={distance,scale,midX,midY,panX,panY};return;}
-  scale=Math.max(.08,Math.min(3,gesture.scale*distance/gesture.distance));
-  panX=gesture.panX+(midX-gesture.midX)-(midX-rect.left-gesture.panX)*(scale/gesture.scale-1);
-  panY=gesture.panY+(midY-gesture.midY)-(midY-rect.top-gesture.panY)*(scale/gesture.scale-1);applyTransform();
+  if(all.length>=2){
+    event.preventDefault();activeShape=activeShape?.kind==="polygon"?activeShape:null;erasePoint=null;
+    const [a,b]=all,distance=Math.hypot(a.x-b.x,a.y-b.y),midX=(a.x+b.x)/2,midY=(a.y+b.y)/2,rect=byId("bohPlanViewport").getBoundingClientRect();
+    if(!gesture){gesture={distance,scale,midX,midY,panX,panY};renderMarkup(activeShape);return;}
+    scale=Math.max(.08,Math.min(3,gesture.scale*distance/gesture.distance));panX=gesture.panX+(midX-gesture.midX)-(midX-rect.left-gesture.panX)*(scale/gesture.scale-1);panY=gesture.panY+(midY-gesture.midY)-(midY-rect.top-gesture.panY)*(scale/gesture.scale-1);applyTransform();return;
+  }
+  if(activeShape?.kind==="rectangle"){event.preventDefault();activeShape.points[1]=normalizedPoint(event);renderMarkup(activeShape);return;}
+  if(markedRowId&&toolKind!=="pan")return;
+  panX+=event.clientX-previous.x;panY+=event.clientY-previous.y;applyTransform();gesture=null;
 });
 byId("bohPlanViewport").addEventListener("pointerup",event=>{
-  if(activeShape?.kind==="rectangle"&&markedRowId){const [start,end]=activeShape.points;if(Math.hypot(end[0]-start[0],end[1]-start[1])>.004)saveShape(activeShape);else{activeShape=null;renderMarkup();}}
-  pointers.delete(event.pointerId);gesture=null;
+  const wasSingle=pointers.size===1;
+  if(wasSingle&&activeShape?.kind==="rectangle"&&markedRowId){const [start,end]=activeShape.points;if(Math.hypot(end[0]-start[0],end[1]-start[1])>.004)saveShape(activeShape);else{activeShape=null;renderMarkup();}}
+  if(wasSingle&&toolKind==="erase"&&erasePoint)eraseMarkupAt(erasePoint);
+  if(lastPolygonPointerId===event.pointerId)lastPolygonPointerId=null;
+  erasePoint=null;pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;
 });
-byId("bohPlanViewport").addEventListener("pointercancel",event=>{if(activeShape?.kind==="rectangle"){activeShape=null;renderMarkup();}pointers.delete(event.pointerId);gesture=null;});
+byId("bohPlanViewport").addEventListener("pointercancel",event=>{if(activeShape?.kind==="rectangle"){activeShape=null;renderMarkup();}erasePoint=null;lastPolygonPointerId=null;pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;});
