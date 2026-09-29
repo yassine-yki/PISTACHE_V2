@@ -203,6 +203,10 @@ byId("bohPlanViewport").addEventListener("pointerdown",event=>{
     if(markMode==="erase"){eraseAt(point);return;}
     activeStroke={mode:markMode,size:.012,points:[point]};renderMarkup(activeStroke);byId("bohMarkupCanvas").setPointerCapture(event.pointerId);return;
   }
+  // Never capture taps made on the floating controls. Pointer capture on the
+  // viewport retargets the following click on touch screens and made these
+  // buttons appear unresponsive.
+  if((event.target as HTMLElement).closest(".boh-markup-tools,.boh-zoom-controls,.boh-draft-actions,.boh-markup-legend"))return;
   pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});byId("bohPlanViewport").setPointerCapture(event.pointerId);
 });
 byId("bohPlanViewport").addEventListener("pointermove",event=>{
