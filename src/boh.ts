@@ -65,6 +65,7 @@ function renderPlan(){
 function renderCards(){
   const floorRows=rows.filter(row=>row.floor_code===activeFloor).sort((a,b)=>a.sort_order-b.sort_order);
   const locked=!editable();
+  byId("bohOpenMarkup").hidden=locked||!floorRows.length;
   byId("bohFinishList").innerHTML=floorRows.map(row=>{
     const value=current(row),dirty=Boolean(drafts[row.id]);
     return `<article class="boh-finish-card${dirty?" dirty":""}" data-boh-id="${row.id}"><header><span class="boh-finish-swatch" style="--finish:${row.color}"></span><strong>${escapeHtml(row.finish_label)}</strong><output>${value.progress} %</output></header><div class="progress-entry"><input type="range" min="0" max="100" step="1" value="${value.progress}" data-boh-progress ${locked?"disabled":""}><input type="number" min="0" max="100" value="${value.progress}" data-boh-number ${locked?"disabled":""}></div><div class="quick-progress">${[0,25,50,75,100].map(percent=>`<button type="button" data-boh-quick="${percent}" ${locked?"disabled":""}>${percent} %</button>`).join("")}</div><button type="button" class="boh-mark-trigger${markedRowId===row.id?" active":""}" data-boh-mark ${locked?"disabled":""}>Délimiter les zones sur le plan${value.markup.length?` · ${value.markup.length} zone(s)`:""}</button><label class="field"><span>Observation / justification</span><textarea rows="2" data-boh-note ${locked?"disabled":""} placeholder="Observation facultative ; obligatoire pour diminuer un ancien avancement.">${escapeHtml(value.note)}</textarea></label>${dirty?'<span class="boh-draft-badge">Modification locale</span>':""}</article>`;
@@ -172,10 +173,12 @@ function setShapeKind(next:ShapeKind){
 }
 function openMarkupTools(rowId:string){
   const row=rows.find(item=>item.id===rowId);if(!row||!editable())return;
+  const floorRows=rows.filter(item=>item.floor_code===activeFloor).sort((a,b)=>a.sort_order-b.sort_order),select=byId<HTMLSelectElement>("bohMarkupFinish");
+  select.innerHTML=floorRows.map(item=>`<option value="${item.id}">${escapeHtml(item.finish_label)}</option>`).join("");select.value=rowId;
   markedRowId=rowId;byId("bohMarkupTitle").textContent=`${row.floor_label} · ${row.finish_label}`;
   byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");setMarkStatus("done");setShapeKind("rectangle");renderCards();renderMarkup();
 }
-function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");activeShape=null;polygonPoints=[];}
+function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");byId("bohOpenMarkup").hidden=!editable();activeShape=null;polygonPoints=[];}
 function normalizedPoint(event:PointerEvent):MarkPoint{
   const rect=byId("bohPlanLayer").getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))];
 }
@@ -211,6 +214,8 @@ byId("bohPlanImage").addEventListener("load",()=>requestAnimationFrame(()=>{setu
 byId("bohZoomIn").addEventListener("click",()=>zoomAt(scale*1.2,byId("bohPlanViewport").clientWidth/2,byId("bohPlanViewport").clientHeight/2));
 byId("bohZoomOut").addEventListener("click",()=>zoomAt(scale/1.2,byId("bohPlanViewport").clientWidth/2,byId("bohPlanViewport").clientHeight/2));
 byId("bohFitPlan").addEventListener("click",fitPlan);
+byId("bohOpenMarkup").addEventListener("click",()=>{const row=rows.find(item=>item.floor_code===activeFloor);if(row)openMarkupTools(row.id);});
+byId("bohMarkupFinish").addEventListener("change",event=>openMarkupTools((event.target as HTMLSelectElement).value));
 byId("bohMarkDone").addEventListener("click",()=>setMarkStatus("done"));
 byId("bohMarkProgress").addEventListener("click",()=>setMarkStatus("progress"));
 byId("bohMarkTodo").addEventListener("click",()=>setMarkStatus("todo"));
@@ -233,7 +238,7 @@ byId("bohPlanViewport").addEventListener("pointerdown",event=>{
   // Never capture taps made on the floating controls. Pointer capture on the
   // viewport retargets the following click on touch screens and made these
   // buttons appear unresponsive.
-  if((event.target as HTMLElement).closest(".boh-markup-tools,.boh-zoom-controls,.boh-draft-actions,.boh-markup-legend"))return;
+  if((event.target as HTMLElement).closest(".boh-open-markup,.boh-markup-tools,.boh-zoom-controls,.boh-draft-actions,.boh-markup-legend"))return;
   pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});byId("bohPlanViewport").setPointerCapture(event.pointerId);
 });
 byId("bohPlanViewport").addEventListener("pointermove",event=>{
