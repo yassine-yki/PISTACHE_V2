@@ -18,7 +18,7 @@ export async function writeOfflineWorker(directory) {
     "  const url=new URL(event.request.url);",
     "  if(event.request.method!=='GET'||url.origin!==self.location.origin)return;",
     "  const path=url.pathname==='/'?'/index.html':url.pathname;",
-    "  if(path.startsWith('/projects/')&&path.endsWith('.dxf')){event.respondWith((async()=>{const plans=await caches.open(PLAN_CACHE);const cached=await plans.match(event.request);if(cached)return cached;try{const response=await fetch(event.request);if(response.ok)await plans.put(event.request,response.clone());return response;}catch{return Response.error();}})());return;}",
+    "  if(path.startsWith('/projects/')&&/\\.(dxf|png)$/.test(path)){event.respondWith((async()=>{const plans=await caches.open(PLAN_CACHE);const cached=await plans.match(event.request);if(cached)return cached;try{const response=await fetch(event.request);if(response.ok)await plans.put(event.request,response.clone());return response;}catch{return Response.error();}})());return;}",
     "  if(!FILES.includes(path))return;",
     "  event.respondWith((async()=>{const cache=await caches.open(CACHE);",
     "    if(path==='/index.html'){try{const response=await fetch(event.request);if(response.ok)await cache.put('/index.html',response.clone());return response;}catch{ return (await cache.match('/index.html'))||Response.error(); }}",

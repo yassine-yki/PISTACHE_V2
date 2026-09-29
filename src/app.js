@@ -8,6 +8,7 @@ import { dailyProgressLines, downloadDailyProgressPdfs } from "./pdf-export.js";
 import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } from "./cloud/workspace.js";
 import { editable } from "./cloud/types.js";
 import { openProjectPhotos, openTaskPhotos } from "./task-photos.js";
+import { openBoh } from "./boh.js";
 
 
 
@@ -23,6 +24,7 @@ let currentUser = null;
 let accessReady = false;
 let saving = false;
 let adminPage = "dashboard";
+let trackingMode = null;
 let taskManagementZone = "bedroom";
 let invitationToken=new URLSearchParams(location.hash.slice(1)).get("invite") || "";
 if(invitationToken) history.replaceState(null,"",location.pathname+location.search);
@@ -1041,12 +1043,12 @@ async function openProject(projectId) {
   state.records=currentFloorRecords();
   elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
   elements.projectDialog.close();
-  accessReady=true;adminPage="dashboard";state.selectedBlock="all";state.selectedType="all";
+  accessReady=true;trackingMode=null;adminPage="dashboard";state.selectedBlock="all";state.selectedType="all";
   state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
   render();
   hideAppLoading();
-  void loadConfiguredPlan(activeProjectDefinition);
   if(!localMode){await renderSync();void syncCloud();}
+  document.querySelector("#trackingModeDialog").showModal();
 }
 
 async function changeFloor(floorId) {
@@ -1084,17 +1086,20 @@ elements.projectDialog.addEventListener("cancel", (event) => {
 
 function renderAccessShell() {
   const admin = currentUser?.role === "admin";
+  const roomsMode=trackingMode==="rooms",bohMode=trackingMode==="boh";
   document.body.dataset.role = localMode ? "viewer" : !accessReady ? "signed-out" : currentUser?.role || "signed-out";
-  document.querySelector("#mainWorkspace").hidden = !accessReady || (!localMode && admin && adminPage !== "dashboard");
-  document.querySelector("#adminNavigation").hidden = !accessReady || !admin || localMode;
-  document.querySelector("#adminTeam").hidden = !admin || adminPage !== "team" || localMode;
-  document.querySelector("#adminTasks").hidden = !admin || adminPage !== "tasks" || localMode;
-  document.querySelector("#adminActivity").hidden = !admin || adminPage !== "history" || localMode;
-  document.querySelector("#adminPhotos").hidden = !admin || adminPage !== "photos" || localMode;
+  document.querySelector("#mainWorkspace").hidden = !accessReady || !roomsMode || (!localMode && admin && adminPage !== "dashboard");
+  document.querySelector("#bohWorkspace").hidden = !accessReady || !bohMode;
+  document.querySelector("#adminNavigation").hidden = !accessReady || !roomsMode || !admin || localMode;
+  document.querySelector("#adminTeam").hidden = !roomsMode || !admin || adminPage !== "team" || localMode;
+  document.querySelector("#adminTasks").hidden = !roomsMode || !admin || adminPage !== "tasks" || localMode;
+  document.querySelector("#adminActivity").hidden = !roomsMode || !admin || adminPage !== "history" || localMode;
+  document.querySelector("#adminPhotos").hidden = !roomsMode || !admin || adminPage !== "photos" || localMode;
   document.querySelector("#profileButton").hidden = !accessReady || localMode;
   document.querySelector("#signInButton").hidden = !cloudConfigured || !localMode || !accessReady;
-  document.querySelector("#syncButton").hidden = !cloud;
-  document.querySelector("#draftActions").hidden=!accessReady || localMode || currentUser?.role==="viewer";
+  document.querySelector("#modeSwitchButton").hidden = !accessReady;
+  document.querySelector("#syncButton").hidden = !cloud || !roomsMode;
+  document.querySelector("#draftActions").hidden=!accessReady || !roomsMode || localMode || currentUser?.role==="viewer";
   document.querySelector("#sessionRole").textContent = localMode ? "Visiteur — lecture seule" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
   document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
   if(!roomAccessible(state.selectedRoom)) { elements.roomTitle.textContent="En attente d'affectation"; elements.roomType.textContent=""; }
@@ -1797,3 +1802,20 @@ for (const [id, readOnly] of [["addTaskPhoto", false], ["viewTaskPhotos", true]]
     }, readOnly);
   });
 }
+
+async function activateTrackingMode(mode) {
+  trackingMode=mode;adminPage="dashboard";
+  document.querySelector("#trackingModeDialog").close();
+  renderAccessShell();
+  if(mode==="rooms") {
+    elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
+    await loadConfiguredPlan(activeProjectDefinition);requestAnimationFrame(fitPlan);
+  } else {
+    elements.projectSubtitle.textContent=activeProjectDefinition.name+" — BOH Carrelage";
+    showAppLoading("Chargement du suivi BOH…");
+    try{await openBoh(cloud?.snapshot || null,currentUser?.role || "viewer");}finally{hideAppLoading();}
+  }
+}
+document.querySelector("#trackingModeDialog").addEventListener("cancel",event=>event.preventDefault());
+document.querySelector("#trackingModeDialog").addEventListener("click",event=>{const button=event.target.closest("[data-tracking-mode]");if(button)void activateTrackingMode(button.dataset.trackingMode);});
+document.querySelector("#modeSwitchButton").addEventListener("click",()=>document.querySelector("#trackingModeDialog").showModal());

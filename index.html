@@ -39,6 +39,10 @@
       </div>
       <div class="project-list" id="projectList"></div>
     </dialog>
+    <dialog class="project-dialog tracking-mode-dialog" id="trackingModeDialog" aria-labelledby="trackingModeTitle">
+      <div class="project-dialog-header"><span class="eyebrow">Projet MUC</span><h2 id="trackingModeTitle">Quel suivi voulez-vous ouvrir ?</h2><p>Les deux suivis restent séparés dans le même projet.</p></div>
+      <div class="tracking-mode-list"><button type="button" data-tracking-mode="rooms"><strong>Suivi des chambres</strong><span>Chambres, salles de bain, tâches et plans DXF du R+2 au R+5.</span></button><button type="button" data-tracking-mode="boh"><strong>BOH - Carrelage</strong><span>Avancement des revêtements de sol par finition et par étage, du SS-2 au N06.</span></button></div>
+    </dialog>
 
     <header class="topbar">
       <div class="brand-block">
@@ -49,7 +53,7 @@
         </div>
       </div>
       <span class="sr-only" id="importStatus" aria-live="polite"></span>
-      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
+      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="modeSwitchButton" hidden>Changer de suivi</button><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
     <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button><button type="button" data-admin-page="photos">Photos</button><span class="admin-exports"><button type="button" id="exportExcel">Exporter Excel</button><button type="button" id="exportDailyPdf">Exporter PDF journalier</button></span></nav>
 
@@ -216,6 +220,13 @@
           </label>
         </section>
       </aside>
+    </main>
+    <main id="bohWorkspace" class="boh-shell" hidden>
+      <section class="boh-plan-column">
+        <div class="boh-toolbar"><label class="field"><span>Étage</span><select id="bohFloorSelect"></select></label><div><span class="eyebrow">Plan de repérage</span><h2 id="bohFloorTitle">BOH - Carrelage</h2></div><strong id="bohSummary"></strong></div>
+        <div id="bohPlanViewport" class="boh-plan-viewport"><img id="bohPlanImage" alt="Plan de repérage des revêtements de sol BOH"><div class="boh-zoom-controls"><button type="button" id="bohZoomIn" aria-label="Agrandir">+</button><button type="button" id="bohZoomOut" aria-label="Réduire">−</button><button type="button" id="bohFitPlan">Ajuster</button><output id="bohZoomValue">100 %</output></div><div id="bohDraftActions" class="draft-actions boh-draft-actions" hidden><button class="button primary" type="button" id="confirmBohProgress">Valider</button><button class="button secondary" type="button" id="cancelBohProgress">Annuler</button></div></div>
+      </section>
+      <aside class="boh-progress-panel"><div class="page-heading"><span class="eyebrow">Finitions de la légende</span><h2>Avancement par zone</h2><p>Chaque finition est suivie séparément pour l’étage affiché.</p></div><p id="bohStatus" role="status"></p><div id="bohFinishList" class="boh-finish-list"></div></aside>
     </main>
 <section id="adminTeam" class="admin-page" hidden>
   <div class="page-heading"><h2>Équipe et affectations</h2><p>Une personne peut intervenir sur plusieurs blocs, à des étages différents.</p></div>
