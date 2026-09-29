@@ -27,6 +27,9 @@ export class SyncEngine {
     const existingDraft=related.find(o=>o.state==="draft");
     const previous = related.filter(o=>o.state!=="draft").sort((a,b) => b.baseVersion - a.baseVersion)[0];
     const assignment = snapshot.assignments.find(a => a.room_task_id === task.id && a.assignee_id === this.userId && !a.ended_at);
+    const correctionNote = correction?.reason === "input-error" && !correction.note.trim()
+      ? "Correction de saisie"
+      : correction?.note;
     const operation: Operation = {
       id: draft && existingDraft ? existingDraft.id : crypto.randomUUID(), projectId, userId: this.userId, deviceId: this.deviceId,
       taskId: task.id, key, assignmentId: assignment?.id || null,
@@ -35,7 +38,7 @@ export class SyncEngine {
       payload: { progress: record.progress, blocked: record.blocked, note: record.note,
         start_date: record.startDate || null, end_date: record.endDate || null,
         ...(draft && existingDraft ? {correction_reason:existingDraft.payload.correction_reason,correction_note:existingDraft.payload.correction_note} : {}),
-        ...(correction ? { correction_reason: correction.reason, correction_note: correction.note } : {}) },
+        ...(correction ? { correction_reason: correction.reason, correction_note: correctionNote } : {}) },
     };
     await this.store.put(operation);
     return operation;

@@ -172,7 +172,7 @@ export class CloudWorkspace {
         const record={progress,blocked:raw.blocked===true,note:typeof raw.note==="string"?raw.note:"",
           startDate:typeof raw.start_date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(raw.start_date)?raw.start_date:"",
           endDate:typeof raw.end_date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(raw.end_date)?raw.end_date:""};
-        const correction=progress<task.record.progress?{reason:"input-error",note:""}:null;
+        const correction=progress<task.record.progress?{reason:"input-error",note:"Correction de saisie"}:null;
         await this.engine.enqueue(projectId,task.key,record,correction,undefined,task.version,false);queued++;
       }
       return queued;

@@ -70,6 +70,13 @@ test("a lost confirmation retries the exact same operation without duplicate eff
   await engine.flush("p");assert.equal(effects,1);assert.equal((await engine.operations("p")).length,0);
   await store.close();
 });
+test("an input correction without an explanation remains compatible with older servers",async()=>{
+  const store=new OfflineStore(crypto.randomUUID());const s=snapshot();s.role="admin";await store.saveSnapshot(s);
+  const engine=new SyncEngine(store,"alice","device",async()=>{throw Error("unused");});
+  const queued=await engine.enqueue("p","201:bedroom:paint",record(0),{reason:"input-error",note:""});
+  assert.equal(queued.payload.correction_note,"Correction de saisie");
+  await store.close();
+});
 test("reassignment keeps rejected work visible and blocks its dependent edits",async()=>{
   const store=new OfflineStore(crypto.randomUUID());await store.saveSnapshot(snapshot());let calls=0;
   const engine=new SyncEngine(store,"alice","device",async()=>{calls++;return {status:"rejected",result_version:null,error_code:"assignment_changed"};});
