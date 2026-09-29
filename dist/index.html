@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-title" content="Projet MUC" />
     <title>Projet MUC — Suivi du chantier</title>
     <link rel="icon" type="image/png" href="/muc-building.png" />
-    <script type="module" crossorigin src="/assets/index-Ccc4PtTS.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CgOag_Of.css">
+    <script type="module" crossorigin src="/assets/index-BFI_zGtn.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-WR2Namvj.css">
   </head>
   <body>
     <dialog class="project-dialog access-dialog" id="loginDialog" aria-labelledby="loginTitle">
@@ -225,7 +225,7 @@
     <main id="bohWorkspace" class="boh-shell" hidden>
       <section class="boh-plan-column">
         <div class="boh-toolbar"><label class="field"><span>Étage</span><select id="bohFloorSelect"></select></label><div><span class="eyebrow">Plan de repérage</span><h2 id="bohFloorTitle">BOH - Carrelage</h2></div><strong id="bohSummary"></strong></div>
-        <div id="bohPlanViewport" class="boh-plan-viewport"><img id="bohPlanImage" alt="Plan de repérage des revêtements de sol BOH"><div class="boh-zoom-controls"><button type="button" id="bohZoomIn" aria-label="Agrandir">+</button><button type="button" id="bohZoomOut" aria-label="Réduire">−</button><button type="button" id="bohFitPlan">Ajuster</button><output id="bohZoomValue">100 %</output></div><div id="bohDraftActions" class="draft-actions boh-draft-actions" hidden><button class="button primary" type="button" id="confirmBohProgress">Valider</button><button class="button secondary" type="button" id="cancelBohProgress">Annuler</button></div></div>
+        <div id="bohPlanViewport" class="boh-plan-viewport"><div id="bohPlanLayer" class="boh-plan-layer"><img id="bohPlanImage" alt="Plan de repérage des revêtements de sol BOH"><canvas id="bohMarkupCanvas" aria-label="Marquage de l’avancement sur le plan"></canvas></div><div id="bohMarkupTools" class="boh-markup-tools" hidden><strong id="bohMarkupTitle">Marquage du plan</strong><div class="boh-markup-modes"><button type="button" id="bohMarkDone" class="active" aria-pressed="true"><span class="done"></span>Terminé</button><button type="button" id="bohMarkPending" aria-pressed="false"><span class="pending"></span>À faire</button><button type="button" id="bohMarkErase" aria-pressed="false">Gomme</button></div><div class="boh-markup-actions"><button type="button" id="bohMarkUndo">Annuler le trait</button><button type="button" id="bohMarkClear">Effacer ce marquage</button><button type="button" id="bohMarkClose">Fermer</button></div><small>Dessinez avec un doigt ou la souris. Fermez l’outil pour déplacer le plan.</small></div><div class="boh-markup-legend"><span><i class="done"></i>Terminé</span><span><i class="pending"></i>À faire</span></div><div class="boh-zoom-controls"><button type="button" id="bohZoomIn" aria-label="Agrandir">+</button><button type="button" id="bohZoomOut" aria-label="Réduire">−</button><button type="button" id="bohFitPlan">Ajuster</button><output id="bohZoomValue">100 %</output></div><div id="bohDraftActions" class="draft-actions boh-draft-actions" hidden><button class="button primary" type="button" id="confirmBohProgress">Valider</button><button class="button secondary" type="button" id="cancelBohProgress">Annuler</button></div></div>
       </section>
       <aside class="boh-progress-panel"><div class="page-heading"><span class="eyebrow">Finitions de la légende</span><h2>Avancement par zone</h2><p>Chaque finition est suivie séparément pour l’étage affiché.</p></div><p id="bohStatus" role="status"></p><div id="bohFinishList" class="boh-finish-list"></div></aside>
     </main>
