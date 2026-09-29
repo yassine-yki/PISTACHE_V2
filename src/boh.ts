@@ -104,6 +104,15 @@ export async function openBoh(nextSnapshot:Snapshot|null,nextRole:string){
   select.value=activeFloor;renderPlan();await refreshRows();
 }
 
+async function submitDraft(row:BohRow,value:Draft,retryOnConflict=true):Promise<BohRow>{
+  const {data,error}=await client!.rpc("submit_boh_progress",{p_area_id:row.id,p_base_version:row.version,p_progress:value.progress,p_note:value.note,p_markup:value.markup});
+  if(error&&retryOnConflict&&/version_conflict/.test(error.message||"")){
+    const {data:fresh,error:refreshError}=await client!.from("boh_progress").select("*").eq("id",row.id).single();
+    if(refreshError||!fresh)throw refreshError||error;Object.assign(row,fresh);return submitDraft(row,value,false);
+  }
+  if(error)throw error;const saved=Array.isArray(data)?data[0]:data;if(!saved)throw new Error("Enregistrement BOH incomplet.");return saved as BohRow;
+}
+
 async function saveDrafts(){
   if(!client||!snapshot||!editable())return;
   const entries=Object.entries(drafts);if(!entries.length)return;
@@ -112,9 +121,7 @@ async function saveDrafts(){
     for(const [id] of entries){
       const row=rows.find(item=>item.id===id);if(!row)continue;
       const value=current(row);
-      const {data,error}=await client.rpc("submit_boh_progress",{p_area_id:id,p_base_version:row.version,p_progress:value.progress,p_note:value.note,p_markup:value.markup});
-      if(error)throw error;
-      const saved=Array.isArray(data)?data[0]:data;if(saved)Object.assign(row,saved);
+      const saved=await submitDraft(row,value);Object.assign(row,saved);
       delete drafts[id];persistDrafts();
     }
     message("Avancement BOH enregistré et partagé.");renderCards();
