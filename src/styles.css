@@ -846,12 +846,14 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
 .boh-markup-tools { position:absolute; z-index:3; left:12px; top:12px; display:grid; gap:7px; width:min(430px,calc(100% - 24px)); padding:10px; border:1px solid var(--line); border-radius:9px; background:#fffffff2; box-shadow:0 3px 14px #20372b20; touch-action:manipulation; }
 .boh-markup-tools[hidden] { display:none; }
 .boh-markup-tools strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.boh-markup-section { display:grid; gap:4px; }
 .boh-markup-modes,.boh-markup-actions { display:flex; flex-wrap:wrap; gap:5px; }
 .boh-markup-tools button { min-height:32px; padding:5px 9px; border:1px solid var(--line); border-radius:6px; background:#fff; font-size:12px; font-weight:750; }
 .boh-markup-tools button.active { outline:2px solid var(--green); outline-offset:1px; }
 .boh-markup-tools span,.boh-markup-legend i { display:inline-block; width:12px; height:12px; margin-right:5px; border-radius:50%; vertical-align:-1px; }
 .boh-markup-tools .done,.boh-markup-legend .done { background:#159447; }
-.boh-markup-tools .pending,.boh-markup-legend .pending { background:#ee8a22; }
+.boh-markup-tools .progress,.boh-markup-legend .progress { background:#ee8a22; }
+.boh-markup-tools .todo,.boh-markup-legend .todo { background:#d83b3b; }
 .boh-markup-tools small { color:var(--muted); }
 .boh-markup-legend { position:absolute; z-index:2; left:12px; top:12px; display:flex; gap:12px; padding:6px 9px; border:1px solid var(--line); border-radius:7px; background:#ffffffe8; color:var(--muted); font-size:11px; }
 .boh-plan-viewport.marking .boh-markup-legend { display:none; }
@@ -887,6 +889,6 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
   .boh-toolbar > strong { width:100%; margin-left:0; }
   .boh-progress-panel { overflow:visible; }
   .boh-zoom-controls { display:none; }
-  .boh-markup-tools { left:8px; top:8px; width:calc(100% - 16px); }
+  .boh-markup-tools { left:8px; top:8px; width:calc(100% - 16px); max-height:calc(100% - 16px); overflow:auto; }
   .boh-markup-tools button { flex:1; }
 }

@@ -22,11 +22,14 @@ export const BOH_FINISHES = [
   { code:"existing-marble", label:"Marbre existant - nettoyage et polissage", color:"#d5f7f7" },
 ] as const;
 
-type MarkMode="done"|"pending"|"erase";
 type MarkPoint=[number,number];
-type MarkStroke={mode:Exclude<MarkMode,"erase">;size:number;points:MarkPoint[]};
-type BohRow = { id:string; project_id:string; floor_code:string; floor_label:string; finish_code:string; finish_label:string; color:string; sort_order:number; progress:number; note:string; markup:MarkStroke[]; version:number; confirmed_day?:string|null; confirmed_progress?:number };
-type Draft = { progress:number; note:string; markup:MarkStroke[] };
+type ZoneStatus="done"|"progress"|"todo";
+type ShapeKind="rectangle"|"polygon";
+type MarkShape={kind:ShapeKind;status:ZoneStatus;points:MarkPoint[]};
+type LegacyStroke={mode:"done"|"pending";size:number;points:MarkPoint[]};
+type MarkItem=MarkShape|LegacyStroke;
+type BohRow = { id:string; project_id:string; floor_code:string; floor_label:string; finish_code:string; finish_label:string; color:string; sort_order:number; progress:number; note:string; markup:MarkItem[]; version:number; confirmed_day?:string|null; confirmed_progress?:number };
+type Draft = { progress:number; note:string; markup:MarkItem[] };
 const byId = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;
 const escapeHtml=(value:string)=>value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
 let rows:BohRow[]=[];
@@ -35,14 +38,14 @@ let activeFloor="rdc";
 let snapshot:Snapshot|null=null;
 let role="viewer";
 let scale=1,panX=0,panY=0;
-let markedRowId:string|null=null,markMode:MarkMode="done",activeStroke:MarkStroke|null=null;
+let markedRowId:string|null=null,markStatus:ZoneStatus="done",shapeKind:ShapeKind="rectangle",activeShape:MarkShape|null=null,polygonPoints:MarkPoint[]=[];
 const pointers=new Map<number,{x:number;y:number}>();
 let gesture:{distance:number;scale:number;midX:number;midY:number;panX:number;panY:number}|null=null;
 
 function draftKey(){ return `muc-boh-drafts:${snapshot?.projectId || "guest"}:${snapshot?.userId || "guest"}`; }
 function loadDrafts(){ try{drafts=JSON.parse(localStorage.getItem(draftKey()) || "{}");}catch{drafts={};} }
 function persistDrafts(){ localStorage.setItem(draftKey(),JSON.stringify(drafts)); }
-function safeMarkup(value:unknown):MarkStroke[]{return Array.isArray(value)?value.filter((stroke):stroke is MarkStroke=>Boolean(stroke&&typeof stroke==="object"&&["done","pending"].includes((stroke as MarkStroke).mode)&&Array.isArray((stroke as MarkStroke).points))):[];}
+function safeMarkup(value:unknown):MarkItem[]{return Array.isArray(value)?value.filter((item):item is MarkItem=>Boolean(item&&typeof item==="object"&&Array.isArray((item as MarkItem).points)&&(("kind" in (item as object)&&["rectangle","polygon"].includes((item as MarkShape).kind)&&["done","progress","todo"].includes((item as MarkShape).status))||("mode" in (item as object)&&["done","pending"].includes((item as LegacyStroke).mode))))):[];}
 function current(row:BohRow){const draft=drafts[row.id];return {progress:Number(draft?.progress??row.progress),note:draft?.note??row.note??"",markup:safeMarkup(draft?.markup??row.markup)};}
 function editable(){ return Boolean(client && snapshot && role!=="viewer"); }
 function message(value:string,error=false){ const node=byId("bohStatus");node.textContent=value;node.classList.toggle("error",error); }
@@ -64,7 +67,7 @@ function renderCards(){
   const locked=!editable();
   byId("bohFinishList").innerHTML=floorRows.map(row=>{
     const value=current(row),dirty=Boolean(drafts[row.id]);
-    return `<article class="boh-finish-card${dirty?" dirty":""}" data-boh-id="${row.id}"><header><span class="boh-finish-swatch" style="--finish:${row.color}"></span><strong>${escapeHtml(row.finish_label)}</strong><output>${value.progress} %</output></header><div class="progress-entry"><input type="range" min="0" max="100" step="1" value="${value.progress}" data-boh-progress ${locked?"disabled":""}><input type="number" min="0" max="100" value="${value.progress}" data-boh-number ${locked?"disabled":""}></div><div class="quick-progress">${[0,25,50,75,100].map(percent=>`<button type="button" data-boh-quick="${percent}" ${locked?"disabled":""}>${percent} %</button>`).join("")}</div><button type="button" class="boh-mark-trigger${markedRowId===row.id?" active":""}" data-boh-mark ${locked?"disabled":""}>Colorier l’avancement sur le plan${value.markup.length?` · ${value.markup.length} tracé(s)`:""}</button><label class="field"><span>Observation / justification</span><textarea rows="2" data-boh-note ${locked?"disabled":""} placeholder="Observation facultative ; obligatoire pour diminuer un ancien avancement.">${escapeHtml(value.note)}</textarea></label>${dirty?'<span class="boh-draft-badge">Modification locale</span>':""}</article>`;
+    return `<article class="boh-finish-card${dirty?" dirty":""}" data-boh-id="${row.id}"><header><span class="boh-finish-swatch" style="--finish:${row.color}"></span><strong>${escapeHtml(row.finish_label)}</strong><output>${value.progress} %</output></header><div class="progress-entry"><input type="range" min="0" max="100" step="1" value="${value.progress}" data-boh-progress ${locked?"disabled":""}><input type="number" min="0" max="100" value="${value.progress}" data-boh-number ${locked?"disabled":""}></div><div class="quick-progress">${[0,25,50,75,100].map(percent=>`<button type="button" data-boh-quick="${percent}" ${locked?"disabled":""}>${percent} %</button>`).join("")}</div><button type="button" class="boh-mark-trigger${markedRowId===row.id?" active":""}" data-boh-mark ${locked?"disabled":""}>Délimiter les zones sur le plan${value.markup.length?` · ${value.markup.length} zone(s)`:""}</button><label class="field"><span>Observation / justification</span><textarea rows="2" data-boh-note ${locked?"disabled":""} placeholder="Observation facultative ; obligatoire pour diminuer un ancien avancement.">${escapeHtml(value.note)}</textarea></label>${dirty?'<span class="boh-draft-badge">Modification locale</span>':""}</article>`;
   }).join("");
   const values=floorRows.map(row=>current(row).progress);
   const average=values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length):0;
@@ -129,17 +132,27 @@ function fitPlan(){
 function zoomAt(next:number,x:number,y:number){const old=scale;scale=Math.max(.08,Math.min(3,next));panX=x-(x-panX)*(scale/old);panY=y-(y-panY)*(scale/old);applyTransform();}
 
 function floorMarkup(){return rows.filter(row=>row.floor_code===activeFloor).flatMap(row=>current(row).markup);}
-function renderMarkup(extra:MarkStroke|null=null){
+function markColors(status:ZoneStatus){return status==="done"?{fill:"rgba(21,148,71,.38)",stroke:"#087c36"}:status==="progress"?{fill:"rgba(238,138,34,.38)",stroke:"#c86808"}:{fill:"rgba(216,59,59,.35)",stroke:"#b51f2b"};}
+function renderMarkup(extra:MarkShape|null=null){
   const canvas=byId<HTMLCanvasElement>("bohMarkupCanvas"),context=canvas.getContext("2d");if(!context)return;
   context.clearRect(0,0,canvas.width,canvas.height);
-  for(const stroke of [...floorMarkup(),...(extra?[extra]:[])]){
-    if(stroke.points.length<1)continue;
-    context.beginPath();context.lineCap="round";context.lineJoin="round";context.lineWidth=Math.max(3,stroke.size*canvas.width);
-    context.strokeStyle=stroke.mode==="done"?"rgba(21,148,71,.58)":"rgba(238,138,34,.58)";
-    const [first,...rest]=stroke.points;context.moveTo(first[0]*canvas.width,first[1]*canvas.height);
-    for(const point of rest)context.lineTo(point[0]*canvas.width,point[1]*canvas.height);
-    if(!rest.length)context.lineTo(first[0]*canvas.width+.01,first[1]*canvas.height+.01);
-    context.stroke();
+  for(const item of [...floorMarkup(),...(extra?[extra]:[])]){
+    if(item.points.length<1)continue;
+    context.beginPath();context.lineCap="round";context.lineJoin="round";
+    if("mode" in item){
+      context.lineWidth=Math.max(3,item.size*canvas.width);context.strokeStyle=item.mode==="done"?"rgba(21,148,71,.58)":"rgba(238,138,34,.58)";
+      const [first,...rest]=item.points;context.moveTo(first[0]*canvas.width,first[1]*canvas.height);for(const point of rest)context.lineTo(point[0]*canvas.width,point[1]*canvas.height);context.stroke();continue;
+    }
+    const colors=markColors(item.status);context.lineWidth=Math.max(3,canvas.width*.0025);context.strokeStyle=colors.stroke;context.fillStyle=colors.fill;
+    if(item.kind==="rectangle"&&item.points.length>=2){
+      const [start,end]=item.points,x=start[0]*canvas.width,y=start[1]*canvas.height,w=(end[0]-start[0])*canvas.width,h=(end[1]-start[1])*canvas.height;context.rect(x,y,w,h);
+    }else{
+      const [first,...rest]=item.points;context.moveTo(first[0]*canvas.width,first[1]*canvas.height);for(const point of rest)context.lineTo(point[0]*canvas.width,point[1]*canvas.height);if(item!==extra)context.closePath();
+    }
+    if(item!==extra||item.kind==="rectangle")context.fill();context.stroke();
+    if(item===extra&&item.kind==="polygon"){
+      for(const point of item.points){context.beginPath();context.fillStyle=colors.stroke;context.arc(point[0]*canvas.width,point[1]*canvas.height,Math.max(5,canvas.width*.004),0,Math.PI*2);context.fill();}
+    }
   }
 }
 function setupMarkupCanvas(){
@@ -147,29 +160,37 @@ function setupMarkupCanvas(){
   layer.style.width=`${image.naturalWidth}px`;layer.style.height=`${image.naturalHeight}px`;
   canvas.width=1600;canvas.height=Math.round(1600*image.naturalHeight/image.naturalWidth);renderMarkup();
 }
-function setMarkMode(next:MarkMode){
-  markMode=next;
-  for(const [id,mode] of [["bohMarkDone","done"],["bohMarkPending","pending"],["bohMarkErase","erase"]] as const){const button=byId<HTMLButtonElement>(id);const active=mode===next;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));}
+function setMarkStatus(next:ZoneStatus){
+  markStatus=next;
+  for(const [id,status] of [["bohMarkDone","done"],["bohMarkProgress","progress"],["bohMarkTodo","todo"]] as const){const button=byId<HTMLButtonElement>(id);const active=status===next;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));}
+  if(activeShape)activeShape.status=next;renderMarkup(activeShape);
+}
+function setShapeKind(next:ShapeKind){
+  shapeKind=next;activeShape=null;polygonPoints=[];
+  for(const [id,kind] of [["bohShapeRectangle","rectangle"],["bohShapePolygon","polygon"]] as const){const button=byId<HTMLButtonElement>(id);const active=kind===next;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));}
+  byId("bohClosePolygon").hidden=next!=="polygon";byId("bohMarkupHelp").textContent=next==="rectangle"?"Rectangle : posez un doigt, tirez puis relâchez.":"Polyligne : touchez chaque sommet, puis le premier point ou « Fermer le contour ».";renderMarkup();
 }
 function openMarkupTools(rowId:string){
   const row=rows.find(item=>item.id===rowId);if(!row||!editable())return;
   markedRowId=rowId;byId("bohMarkupTitle").textContent=`${row.floor_label} · ${row.finish_label}`;
-  byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");setMarkMode("done");renderCards();renderMarkup();
+  byId("bohMarkupTools").hidden=false;byId("bohPlanViewport").classList.add("marking");setMarkStatus("done");setShapeKind("rectangle");renderCards();renderMarkup();
 }
-function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");activeStroke=null;}
+function closeMarkupTools(){markedRowId=null;byId("bohMarkupTools").hidden=true;byId("bohPlanViewport")?.classList.remove("marking");activeShape=null;polygonPoints=[];}
 function normalizedPoint(event:PointerEvent):MarkPoint{
   const rect=byId("bohPlanLayer").getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))];
 }
-function eraseAt(point:MarkPoint){
-  if(!markedRowId)return;const row=rows.find(item=>item.id===markedRowId);if(!row)return;
-  const markup=current(row).markup,threshold=.025;
-  let best=-1,distance=Infinity;
-  markup.forEach((stroke,index)=>stroke.points.forEach(candidate=>{const value=Math.hypot(candidate[0]-point[0],candidate[1]-point[1]);if(value<distance){distance=value;best=index;}}));
-  if(best>=0&&distance<=threshold){const next=markup.filter((_,index)=>index!==best);setDraft(row.id,{markup:next},false);renderMarkup();}
-}
 function undoMarkup(clear=false){
   if(!markedRowId)return;const row=rows.find(item=>item.id===markedRowId);if(!row)return;
+  if(activeShape||polygonPoints.length){activeShape=null;polygonPoints=[];renderMarkup();return;}
   const markup=current(row).markup;setDraft(row.id,{markup:clear?[]:markup.slice(0,-1)},false);renderMarkup();renderCards();
+}
+function saveShape(shape:MarkShape){
+  if(!markedRowId)return;const row=rows.find(item=>item.id===markedRowId);if(!row)return;
+  setDraft(row.id,{markup:[...current(row).markup,shape]},false);activeShape=null;polygonPoints=[];renderMarkup();renderCards();
+}
+function closePolygon(){
+  if(polygonPoints.length<3){message("Ajoutez au moins trois points pour fermer la zone.",true);return;}
+  saveShape({kind:"polygon",status:markStatus,points:[...polygonPoints]});message("Zone ajoutée. Validez pour la partager.");
 }
 
 byId("bohFloorSelect").addEventListener("change",event=>{activeFloor=(event.target as HTMLSelectElement).value;sessionStorage.setItem("muc-boh-floor",activeFloor);renderPlan();renderCards();});
@@ -190,9 +211,12 @@ byId("bohPlanImage").addEventListener("load",()=>requestAnimationFrame(()=>{setu
 byId("bohZoomIn").addEventListener("click",()=>zoomAt(scale*1.2,byId("bohPlanViewport").clientWidth/2,byId("bohPlanViewport").clientHeight/2));
 byId("bohZoomOut").addEventListener("click",()=>zoomAt(scale/1.2,byId("bohPlanViewport").clientWidth/2,byId("bohPlanViewport").clientHeight/2));
 byId("bohFitPlan").addEventListener("click",fitPlan);
-byId("bohMarkDone").addEventListener("click",()=>setMarkMode("done"));
-byId("bohMarkPending").addEventListener("click",()=>setMarkMode("pending"));
-byId("bohMarkErase").addEventListener("click",()=>setMarkMode("erase"));
+byId("bohMarkDone").addEventListener("click",()=>setMarkStatus("done"));
+byId("bohMarkProgress").addEventListener("click",()=>setMarkStatus("progress"));
+byId("bohMarkTodo").addEventListener("click",()=>setMarkStatus("todo"));
+byId("bohShapeRectangle").addEventListener("click",()=>setShapeKind("rectangle"));
+byId("bohShapePolygon").addEventListener("click",()=>setShapeKind("polygon"));
+byId("bohClosePolygon").addEventListener("click",closePolygon);
 byId("bohMarkUndo").addEventListener("click",()=>undoMarkup());
 byId("bohMarkClear").addEventListener("click",()=>undoMarkup(true));
 byId("bohMarkClose").addEventListener("click",()=>{closeMarkupTools();renderCards();});
@@ -200,8 +224,11 @@ byId("bohPlanViewport").addEventListener("wheel",event=>{event.preventDefault();
 byId("bohPlanViewport").addEventListener("pointerdown",event=>{
   if(markedRowId&&event.target===byId("bohMarkupCanvas")){
     event.preventDefault();const point=normalizedPoint(event);
-    if(markMode==="erase"){eraseAt(point);return;}
-    activeStroke={mode:markMode,size:.012,points:[point]};renderMarkup(activeStroke);byId("bohMarkupCanvas").setPointerCapture(event.pointerId);return;
+    if(shapeKind==="rectangle"){
+      activeShape={kind:"rectangle",status:markStatus,points:[point,point]};renderMarkup(activeShape);byId("bohMarkupCanvas").setPointerCapture(event.pointerId);return;
+    }
+    if(polygonPoints.length>=3&&Math.hypot(point[0]-polygonPoints[0][0],point[1]-polygonPoints[0][1])<.05){closePolygon();return;}
+    polygonPoints.push(point);activeShape={kind:"polygon",status:markStatus,points:[...polygonPoints]};renderMarkup(activeShape);return;
   }
   // Never capture taps made on the floating controls. Pointer capture on the
   // viewport retargets the following click on touch screens and made these
@@ -210,7 +237,7 @@ byId("bohPlanViewport").addEventListener("pointerdown",event=>{
   pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});byId("bohPlanViewport").setPointerCapture(event.pointerId);
 });
 byId("bohPlanViewport").addEventListener("pointermove",event=>{
-  if(activeStroke){event.preventDefault();const point=normalizedPoint(event),last=activeStroke.points.at(-1)!;if(Math.hypot(point[0]-last[0],point[1]-last[1])>.001){activeStroke.points.push(point);renderMarkup(activeStroke);}return;}
+  if(activeShape?.kind==="rectangle"){event.preventDefault();activeShape.points[1]=normalizedPoint(event);renderMarkup(activeShape);return;}
   const previous=pointers.get(event.pointerId);if(!previous)return;pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});const all=[...pointers.values()];
   if(all.length===1){panX+=event.clientX-previous.x;panY+=event.clientY-previous.y;applyTransform();gesture=null;return;}
   const [a,b]=all,distance=Math.hypot(a.x-b.x,a.y-b.y),midX=(a.x+b.x)/2,midY=(a.y+b.y)/2,rect=byId("bohPlanViewport").getBoundingClientRect();
@@ -219,7 +246,8 @@ byId("bohPlanViewport").addEventListener("pointermove",event=>{
   panX=gesture.panX+(midX-gesture.midX)-(midX-rect.left-gesture.panX)*(scale/gesture.scale-1);
   panY=gesture.panY+(midY-gesture.midY)-(midY-rect.top-gesture.panY)*(scale/gesture.scale-1);applyTransform();
 });
-for(const name of ["pointerup","pointercancel"]){byId("bohPlanViewport").addEventListener(name,event=>{
-  if(activeStroke&&markedRowId){const row=rows.find(item=>item.id===markedRowId);if(row){setDraft(row.id,{markup:[...current(row).markup,activeStroke]},false);}activeStroke=null;renderMarkup();renderCards();}
-  pointers.delete((event as PointerEvent).pointerId);gesture=null;
-});}
+byId("bohPlanViewport").addEventListener("pointerup",event=>{
+  if(activeShape?.kind==="rectangle"&&markedRowId){const [start,end]=activeShape.points;if(Math.hypot(end[0]-start[0],end[1]-start[1])>.004)saveShape(activeShape);else{activeShape=null;renderMarkup();}}
+  pointers.delete(event.pointerId);gesture=null;
+});
+byId("bohPlanViewport").addEventListener("pointercancel",event=>{if(activeShape?.kind==="rectangle"){activeShape=null;renderMarkup();}pointers.delete(event.pointerId);gesture=null;});
