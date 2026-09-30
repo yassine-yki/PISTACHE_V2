@@ -21,7 +21,7 @@ let panStart:{x:number;y:number;viewX:number;viewY:number}|null=null;
 let detectionSummary="Aucun plan analysé.";
 
 function draftKey(){return `muc-dxf-workshop:${projectId}`;}
-function loadDraft(){fileName="";levels=["NIVEAU"];layers=[];zones=[];activePoints=[];layerColors={};try{const saved=JSON.parse(localStorage.getItem(draftKey())||"null") as WorkshopDraft|null;if(saved){fileName=saved.fileName||"";levels=saved.levels?.length?saved.levels:["NIVEAU"];layers=saved.layers||[];zones=saved.zones||[];layerColors=saved.layerColors||{};}}catch{/* Brouillon illisible ignoré. */}}
+function resetWorkshop(){source="";fileName="";dxf=null;levels=["NIVEAU"];layers=[];zones=[];activePoints=[];layerColors={};localStorage.removeItem(draftKey());}
 function persist(){localStorage.setItem(draftKey(),JSON.stringify({fileName,levels,layers,zones,layerColors} satisfies WorkshopDraft));}
 function message(value:string,error=false){const node=byId("workshopStatus");node.textContent=value;node.classList.toggle("error",error);}
 function colorFor(value:string){let hash=0;for(const char of value)hash=(hash*31+char.charCodeAt(0))>>>0;return `hsl(${hash%360} 58% 46%)`;}
@@ -182,6 +182,6 @@ function initialize(){
   svg.addEventListener("wheel",event=>{if(!dxf)return;event.preventDefault();const factor=event.deltaY>0?1.15:.87,point=svgPoint(event as unknown as PointerEvent);if(!point)return;const cursorY=-point.y,rx=(point.x-view.x)/view.width,ry=(cursorY-view.y)/view.height;view.width*=factor;view.height*=factor;view.x=point.x-rx*view.width;view.y=cursorY-ry*view.height;renderSvg();},{passive:false});
 }
 
-export function openDxfWorkshop(nextProjectId:string,editable:boolean){projectId=nextProjectId;canEdit=editable;initialize();loadDraft();detectionSummary=zones.length?`${zones.length} espace(s) restauré(s) depuis le brouillon.`:"Aucun plan analysé.";render();message(fileName?"Réimportez le DXF original pour afficher et exporter le brouillon.":"Importez un fichier DXF : la détection démarrera automatiquement.");}
+export function openDxfWorkshop(nextProjectId:string,editable:boolean){projectId=nextProjectId;canEdit=editable;initialize();resetWorkshop();detectionSummary="Aucun plan analysé.";render();message("Importez un fichier DXF : la détection démarrera automatiquement.");}
 
 export {sanitizeLayerName};
