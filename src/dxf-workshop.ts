@@ -1,6 +1,9 @@
+import { detectLegendHatchZones } from "./dxf-legend.js";
+
 type Point={x:number;y:number};
-type Zone={id:string;level:string;layer:string;points:Point[]};
-type WorkshopDraft={fileName:string;levels:string[];layers:string[];zones:Zone[]};
+type Zone={id:string;level:string;layer:string;points:Point[];colorIndex?:number;trueColor?:number;color?:string};
+type LayerColor={colorIndex?:number;trueColor?:number;color?:string};
+type WorkshopDraft={fileName:string;levels:string[];layers:string[];zones:Zone[];layerColors?:Record<string,LayerColor>};
 type Bounds={minX:number;minY:number;maxX:number;maxY:number};
 type DetectedText={text:string;point:Point};
 export type WorkshopDetection={zones:Zone[];levels:string[];layers:string[];closedCount:number};
@@ -12,16 +15,17 @@ const escapeHtml=(value:string)=>value.replaceAll("&","&amp;").replaceAll("<","&
 const numberValue=(value:number)=>Number(value).toFixed(4).replace(/\.0+$/,"");
 let projectId="mixed-use",canEdit=false,initialized=false,source="",fileName="",dxf:any=null;
 let levels=["NIVEAU"],layers:string[]=[],zones:Zone[]=[],activePoints:Point[]=[],tool:"draw"|"pan"="draw";
+let layerColors:Record<string,LayerColor>={};
 let bounds:Bounds={minX:0,minY:0,maxX:100,maxY:100},view={x:0,y:-100,width:100,height:100};
 let panStart:{x:number;y:number;viewX:number;viewY:number}|null=null;
 let detectionSummary="Aucun plan analysé.";
 
 function draftKey(){return `muc-dxf-workshop:${projectId}`;}
-function loadDraft(){fileName="";levels=["NIVEAU"];layers=[];zones=[];activePoints=[];try{const saved=JSON.parse(localStorage.getItem(draftKey())||"null") as WorkshopDraft|null;if(saved){fileName=saved.fileName||"";levels=saved.levels?.length?saved.levels:["NIVEAU"];layers=saved.layers||[];zones=saved.zones||[];}}catch{/* Brouillon illisible ignoré. */}}
-function persist(){localStorage.setItem(draftKey(),JSON.stringify({fileName,levels,layers,zones} satisfies WorkshopDraft));}
+function loadDraft(){fileName="";levels=["NIVEAU"];layers=[];zones=[];activePoints=[];layerColors={};try{const saved=JSON.parse(localStorage.getItem(draftKey())||"null") as WorkshopDraft|null;if(saved){fileName=saved.fileName||"";levels=saved.levels?.length?saved.levels:["NIVEAU"];layers=saved.layers||[];zones=saved.zones||[];layerColors=saved.layerColors||{};}}catch{/* Brouillon illisible ignoré. */}}
+function persist(){localStorage.setItem(draftKey(),JSON.stringify({fileName,levels,layers,zones,layerColors} satisfies WorkshopDraft));}
 function message(value:string,error=false){const node=byId("workshopStatus");node.textContent=value;node.classList.toggle("error",error);}
 function colorFor(value:string){let hash=0;for(const char of value)hash=(hash*31+char.charCodeAt(0))>>>0;return `hsl(${hash%360} 58% 46%)`;}
-function cleanText(entity:any){return String(entity.text||entity.string||entity.value||"").replace(/\\P/g," ").replace(/[{}]/g,"").trim();}
+function cleanText(entity:any){return String(entity.text||entity.string||entity.value||"").replace(/\\P/g," ").replace(/\\[A-Za-z][^;]*;/g,"").replace(/[{}]/g,"").replace(/\s+/g," ").trim();}
 function entityPoint(entity:any){return entity.position||entity.startPoint||entity.vertices?.[0]||null;}
 function allPoints(model:any):Point[]{
   const result:Point[]=[];
@@ -97,7 +101,7 @@ function renderSvg(){
   byId("workshopEmpty").hidden=true;
   const architecture=(dxf.entities||[]).map((entity:any)=>entitySvg(entity,dxf.blocks||{})).join("");
   const texts=(dxf.entities||[]).filter((entity:any)=>["TEXT","MTEXT"].includes(entity.type)&&entityPoint(entity)).map((entity:any)=>{const point=entityPoint(entity),text=cleanText(entity);return text?`<text x="${numberValue(point.x)}" y="${numberValue(-point.y)}">${escapeHtml(text)}</text>`:"";}).join("");
-  const saved=zones.map(zone=>`<path class="workshop-zone" style="--zone:${colorFor(zone.layer)}" d="${pointsPath(zone.points,true)}"><title>${escapeHtml(zone.level)} · ${escapeHtml(zone.layer)}</title></path>`).join("");
+  const saved=zones.map(zone=>`<path class="workshop-zone" style="--zone:${zone.color||colorFor(zone.layer)}" d="${pointsPath(zone.points,true)}"><title>${escapeHtml(zone.level)} · ${escapeHtml(zone.layer)}</title></path>`).join("");
   const active=activePoints.length?`<path class="workshop-active-zone" d="${pointsPath(activePoints)}"/>${activePoints.map((point,index)=>`<circle data-active-point="${index}" cx="${numberValue(point.x)}" cy="${numberValue(point.y)}" r="${numberValue(Math.max(view.width,view.height)*.004)}"/>`).join("")}`:"";
   svg.innerHTML=`<g class="workshop-architecture" transform="scale(1 -1)">${architecture}</g><g class="workshop-zones" transform="scale(1 -1)">${saved}${active}</g><g class="workshop-texts">${texts}</g>`;
 }
@@ -106,7 +110,7 @@ function renderControls(){
   const selectedLevel=level.value||levels[0],selectedLayer=layer.value;
   level.innerHTML=levels.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");level.value=levels.includes(selectedLevel)?selectedLevel:levels[0];
   layer.innerHTML=layers.length?layers.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join(""):'<option value="">Ajoutez un élément de légende</option>';if(layers.includes(selectedLayer))layer.value=selectedLayer;
-  byId("workshopZoneList").innerHTML=zones.length?zones.map((zone,index)=>`<article><i style="--zone:${colorFor(zone.layer)}"></i><span><strong>${escapeHtml(zone.layer)}</strong><small>${escapeHtml(zone.level)} · ${zone.points.length} sommets</small></span><button type="button" data-workshop-delete="${index}">Supprimer</button></article>`).join(""):'<p class="access-hint">Aucun contour fermé.</p>';
+  byId("workshopZoneList").innerHTML=zones.length?zones.map((zone,index)=>`<article><i style="--zone:${zone.color||colorFor(zone.layer)}"></i><span><strong>${escapeHtml(zone.layer)}</strong><small>${escapeHtml(zone.level)} · ${zone.points.length} sommets</small></span><button type="button" data-workshop-delete="${index}">Supprimer</button></article>`).join(""):'<p class="access-hint">Aucun contour fermé.</p>';
   byId("workshopPlanTitle").textContent=fileName||"Aucun plan importé";byId("workshopPlanSummary").textContent=`${zones.length} contour(s) · ${layers.length} calque(s)`;
   byId("workshopDetectionSummary").textContent=detectionSummary;
   byId("workshopDraw").classList.toggle("active",tool==="draw");byId("workshopPan").classList.toggle("active",tool==="pan");
@@ -119,19 +123,19 @@ function closeContour(){
   if(activePoints.length<3){message("Ajoutez au moins trois points avant de fermer le contour.",true);return;}
   const layer=byId<HTMLSelectElement>("workshopLayer").value,level=byId<HTMLSelectElement>("workshopLevel").value;
   if(!layer){message("Choisissez d’abord un élément de légende.",true);return;}
-  zones.push({id:crypto.randomUUID(),level,layer,points:[...activePoints]});activePoints=[];persist();render();message(`Contour ajouté au calque « ${layer} » (${level}).`);
+  zones.push({id:crypto.randomUUID(),level,layer,points:[...activePoints],...layerColors[layer]});activePoints=[];persist();render();message(`Contour ajouté au calque « ${layer} » (${level}).`);
 }
-function sanitizeLayerName(value:string){return value.normalize("NFC").replace(/[<>\\/:;?*|="]/g,"-").replace(/\s+/g," ").trim().slice(0,255)||"ZONE";}
-function layerRecord(name:string){return `0\nLAYER\n2\n${name}\n70\n0\n62\n3\n6\nCONTINUOUS\n`;}
+function sanitizeLayerName(value:string){return value.normalize("NFC").replace(/(\d)\s*[*×]\s*(\d)/g,"$1x$2").replace(/[<>\\/:;?*|="]/g,"-").replace(/\s+/g," ").trim().slice(0,255)||"ZONE";}
+function layerRecord(name:string,colorIndex=3,trueColor?:number){return `0\nLAYER\n2\n${name}\n70\n0\n62\n${Math.max(1,Math.min(255,colorIndex))}\n${Number.isFinite(trueColor)?`420\n${trueColor}\n`:""}6\nCONTINUOUS\n`;}
 function polylineRecord(zone:Zone){const name=sanitizeLayerName(zone.layer);return `0\nLWPOLYLINE\n8\n${name}\n90\n${zone.points.length}\n70\n1\n${zone.points.map(point=>`10\n${numberValue(point.x)}\n20\n${numberValue(point.y)}\n`).join("")}`;}
 function normalizeAsciiDxf(original:string){
   const normalized=original.replace(/^\uFEFF/,"").replace(/\r\n?/g,"\n").replace(/^(?:[ \t]*\n)+/,""),lines=normalized.split("\n");
   for(let index=0;index<lines.length;index+=2)lines[index]=lines[index].trim();
   return lines.join("\n");
 }
-export function appendWorkshopLayers(original:string,inputZones:Zone[]){
-  let result=normalizeAsciiDxf(original),names=[...new Set(inputZones.map(zone=>sanitizeLayerName(zone.layer)))];
-  const layerEntries=names.map(layerRecord).join("");
+export function appendWorkshopLayers(original:string,inputZones:Zone[],inputLayers:Array<{name:string;colorIndex?:number;trueColor?:number}>=[]){
+  let result=normalizeAsciiDxf(original);const definitions=new Map<string,LayerColor>();for(const layer of inputLayers)definitions.set(sanitizeLayerName(layer.name),{colorIndex:layer.colorIndex||3,trueColor:layer.trueColor});for(const zone of inputZones){const name=sanitizeLayerName(zone.layer),existing=definitions.get(name);definitions.set(name,{colorIndex:zone.colorIndex||existing?.colorIndex||3,trueColor:zone.trueColor??existing?.trueColor});}
+  const layerEntries=[...definitions].map(([name,definition])=>layerRecord(name,definition.colorIndex,definition.trueColor)).join("");
   const layerTable=/(^|\n)(0\n[ \t]*TABLE[ \t]*\n2\n[ \t]*LAYER[ \t]*\n[\s\S]*?)(\n0\n[ \t]*ENDTAB[ \t]*(?:\n|$))/i;
   if(layerTable.test(result))result=result.replace(layerTable,`$1$2\n${layerEntries.trimEnd()}$3`);
   const marker=/(^|\n)0\n[ \t]*SECTION[ \t]*\n2\n[ \t]*ENTITIES[ \t]*(?:\n|$)/i.exec(result);if(!marker)throw new Error("La section ENTITIES du DXF est introuvable. Vérifiez qu’il s’agit bien d’un DXF ASCII et non d’un DWG renommé.");
@@ -149,16 +153,15 @@ function detectMetadata(){
 }
 function runAutomaticDetection(replace=true){
   if(!dxf){message("Importez d’abord un fichier DXF.",true);return;}
-  const fallback=byId<HTMLSelectElement>("workshopLevel").value||levels[0]||"NIVEAU",detected=detectClosedSpaces(dxf,fallback);
-  levels=[...new Set([...levels,...detected.levels])];layers=[...new Set([...layers,...detected.layers])].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));
-  if(replace)zones=detected.zones;
-  detectionSummary=`${detected.zones.length} espace(s) reconnu(s), ${detected.layers.length} calque(s) et ${detected.levels.length} niveau(x).`;
+  const selected=byId<HTMLSelectElement>("workshopLevel").value,fallback=levels.find(level=>level!=="NIVEAU")||selected||levels[0]||"NIVEAU",legend=detectLegendHatchZones(source,dxf,fallback),detected=legend.entries.length?null:detectClosedSpaces(dxf,fallback);
+  if(legend.entries.length){layers=legend.entries.map(entry=>entry.name);layerColors=Object.fromEntries(legend.entries.map(entry=>[entry.name,{colorIndex:entry.colorIndex,trueColor:entry.trueColor,color:entry.color}]));if(replace)zones=legend.zones;detectionSummary=`Légende reconnue : ${legend.entries.length} calque(s) et ${legend.zones.length} contour(s) trouvés par correspondance des hachures et couleurs.`;}
+  else if(detected){levels=[...new Set([...levels,...detected.levels])];layers=[...new Set([...layers,...detected.layers])].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));if(replace)zones=detected.zones;detectionSummary=`Aucune table de légende détectée. ${detected.zones.length} espace(s) nommé(s) reconnu(s) par leur géométrie.`;}
   activePoints=[];persist();render();
-  message(detected.zones.length?"Détection terminée. Vérifiez visuellement les zones avant l’export.":"Aucun espace nommé n’a été reconnu. Le plan doit contenir des polylignes fermées associées à des textes ou à des calques nommés.",!detected.zones.length);
+  const count=legend.entries.length?legend.zones.length:detected?.zones.length||0;message(count?"Analyse terminée : les motifs de la légende ont été associés aux zones similaires du plan.":legend.entries.length?"La légende est reconnue et ses calques seront créés, mais aucun motif identique n’a été trouvé dans le plan.":"Aucune légende exploitable ni aucun espace nommé n’a été reconnu.",!count);
 }
 async function importFile(file:File){
   if(!file.name.toLowerCase().endsWith(".dxf")){message("Exportez d’abord le plan AutoCAD au format DXF.",true);return;}
-  source=await file.text();try{const sameDraft=fileName===file.name&&zones.length>0;dxf=new window.DxfParser().parseSync(source);if(!dxf)throw new Error("DXF vide");fileName=file.name;bounds=computeBounds(dxf);fit();detectMetadata();if(sameDraft){detectionSummary=`${zones.length} espace(s) restauré(s) depuis le brouillon. Relancez la détection pour les remplacer.`;persist();render();message("DXF chargé avec votre brouillon existant.");}else runAutomaticDetection(true);}catch(error){dxf=null;message(`DXF illisible : ${error instanceof Error?error.message:String(error)}`,true);render();}
+  source=await file.text();try{dxf=new window.DxfParser().parseSync(source);if(!dxf)throw new Error("DXF vide");fileName=file.name;bounds=computeBounds(dxf);fit();detectMetadata();runAutomaticDetection(true);}catch(error){dxf=null;message(`DXF illisible : ${error instanceof Error?error.message:String(error)}`,true);render();}
 }
 function initialize(){
   if(initialized)return;initialized=true;
@@ -171,8 +174,8 @@ function initialize(){
   byId("workshopDeleteZone").addEventListener("click",()=>{if(zones.length){zones.pop();persist();render();message("Dernier contour supprimé.");}});
   byId("workshopClear").addEventListener("click",()=>{if(zones.length&&confirm("Supprimer tous les contours de ce brouillon ?")){zones=[];activePoints=[];persist();render();message("Tous les contours ont été supprimés.");}});
   byId("workshopZoneList").addEventListener("click",event=>{const button=(event.target as HTMLElement).closest<HTMLButtonElement>("[data-workshop-delete]");if(!button)return;zones.splice(Number(button.dataset.workshopDelete),1);persist();render();message("Contour supprimé.");});
-  byId("workshopExportDxf").addEventListener("click",()=>{if(!source)return message("Importez le DXF original avant l’export.",true);if(!zones.length)return message("Dessinez au moins un contour fermé.",true);try{download(appendWorkshopLayers(source,zones),"application/dxf",`${fileName.replace(/\.dxf$/i,"")}-calques.dxf`);message("DXF exporté avec les calques de la légende.");}catch(error){message(error instanceof Error?error.message:String(error),true);}});
-  byId("workshopExportJson").addEventListener("click",()=>download(JSON.stringify({fileName,levels,layers,zones},null,2),"application/json",`${fileName.replace(/\.dxf$/i,"")||"plan"}-delimitations.json`));
+  byId("workshopExportDxf").addEventListener("click",()=>{if(!source)return message("Importez le DXF original avant l’export.",true);if(!layers.length)return message("Aucun élément de légende n’a été reconnu.",true);try{download(appendWorkshopLayers(source,zones,layers.map(name=>({name,colorIndex:layerColors[name]?.colorIndex,trueColor:layerColors[name]?.trueColor}))),"application/dxf",`${fileName.replace(/\.dxf$/i,"")}-calques.dxf`);message("DXF exporté avec les calques et contours détectés depuis la légende.");}catch(error){message(error instanceof Error?error.message:String(error),true);}});
+  byId("workshopExportJson").addEventListener("click",()=>download(JSON.stringify({fileName,levels,layers,zones,layerColors},null,2),"application/json",`${fileName.replace(/\.dxf$/i,"")||"plan"}-delimitations.json`));
   const svg=byId<SVGSVGElement>("workshopSvg");svg.addEventListener("pointerdown",event=>{if(!dxf||!canEdit)return;if(tool==="pan"){panStart={x:event.clientX,y:event.clientY,viewX:view.x,viewY:view.y};svg.setPointerCapture(event.pointerId);return;}const point=svgPoint(event);if(!point)return;const threshold=Math.max(view.width,view.height)*.015;if(activePoints.length>=3&&Math.hypot(point.x-activePoints[0].x,point.y-activePoints[0].y)<threshold)return closeContour();activePoints.push(point);renderSvg();message(`${activePoints.length} point(s). Touchez le premier point ou « Fermer le contour ».`);});
   svg.addEventListener("pointermove",event=>{if(!panStart||tool!=="pan")return;view.x=panStart.viewX-(event.clientX-panStart.x)*view.width/svg.clientWidth;view.y=panStart.viewY-(event.clientY-panStart.y)*view.height/svg.clientHeight;renderSvg();});
   const stopPan=()=>{panStart=null;};svg.addEventListener("pointerup",stopPan);svg.addEventListener("pointercancel",stopPan);

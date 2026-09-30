@@ -39,6 +39,7 @@ test("exports DXF files whose group codes are padded and use old Mac line ending
 
 test("sanitizes characters forbidden in AutoCAD layer names", () => {
   assert.equal(sanitizeLayerName("  Couloir / BOH:*  "), "Couloir - BOH--");
+  assert.equal(sanitizeLayerName("Carreaux 30*30"), "Carreaux 30x30");
   assert.equal(sanitizeLayerName(""), "ZONE");
 });
 
