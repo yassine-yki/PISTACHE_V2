@@ -124,12 +124,19 @@ function closeContour(){
 function sanitizeLayerName(value:string){return value.normalize("NFC").replace(/[<>\\/:;?*|="]/g,"-").replace(/\s+/g," ").trim().slice(0,255)||"ZONE";}
 function layerRecord(name:string){return `0\nLAYER\n2\n${name}\n70\n0\n62\n3\n6\nCONTINUOUS\n`;}
 function polylineRecord(zone:Zone){const name=sanitizeLayerName(zone.layer);return `0\nLWPOLYLINE\n8\n${name}\n90\n${zone.points.length}\n70\n1\n${zone.points.map(point=>`10\n${numberValue(point.x)}\n20\n${numberValue(point.y)}\n`).join("")}`;}
+function normalizeAsciiDxf(original:string){
+  const normalized=original.replace(/^\uFEFF/,"").replace(/\r\n?/g,"\n").replace(/^(?:[ \t]*\n)+/,""),lines=normalized.split("\n");
+  for(let index=0;index<lines.length;index+=2)lines[index]=lines[index].trim();
+  return lines.join("\n");
+}
 export function appendWorkshopLayers(original:string,inputZones:Zone[]){
-  let result=original.replace(/\r\n/g,"\n"),names=[...new Set(inputZones.map(zone=>sanitizeLayerName(zone.layer)))];
+  let result=normalizeAsciiDxf(original),names=[...new Set(inputZones.map(zone=>sanitizeLayerName(zone.layer)))];
   const layerEntries=names.map(layerRecord).join("");
-  if(/\n0\nTABLE\n2\nLAYER\n/i.test(result))result=result.replace(/(\n0\nTABLE\n2\nLAYER\n[\s\S]*?)(\n0\nENDTAB)/i,`$1\n${layerEntries.trimEnd()}$2`);
-  const marker=/\n0\nSECTION\n2\nENTITIES\n/i.exec(result);if(!marker)throw new Error("La section ENTITIES du DXF est introuvable.");
-  const end=result.indexOf("0\nENDSEC",marker.index+marker[0].length);if(end<0)throw new Error("La fin de la section ENTITIES est introuvable.");
+  const layerTable=/(^|\n)(0\n[ \t]*TABLE[ \t]*\n2\n[ \t]*LAYER[ \t]*\n[\s\S]*?)(\n0\n[ \t]*ENDTAB[ \t]*(?:\n|$))/i;
+  if(layerTable.test(result))result=result.replace(layerTable,`$1$2\n${layerEntries.trimEnd()}$3`);
+  const marker=/(^|\n)0\n[ \t]*SECTION[ \t]*\n2\n[ \t]*ENTITIES[ \t]*(?:\n|$)/i.exec(result);if(!marker)throw new Error("La section ENTITIES du DXF est introuvable. Vérifiez qu’il s’agit bien d’un DXF ASCII et non d’un DWG renommé.");
+  const offset=marker.index+marker[0].length,remainder=result.slice(offset),endMarker=/(^|\n)0\n[ \t]*ENDSEC[ \t]*(?:\n|$)/i.exec(remainder);if(!endMarker)throw new Error("La fin de la section ENTITIES est introuvable.");
+  const end=offset+endMarker.index+(endMarker[0].startsWith("\n")?1:0);
   result=result.slice(0,end)+inputZones.map(polylineRecord).join("")+result.slice(end);return result.replace(/\n/g,"\r\n");
 }
 function download(content:string,type:string,name:string){const link=document.createElement("a");link.href=URL.createObjectURL(new Blob([content],{type}));link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}

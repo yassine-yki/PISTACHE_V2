@@ -30,6 +30,13 @@ test("creates an AutoCAD layer and a closed polyline for a delimited space", () 
   assert.match(exported, /0\r\nLAYER\r\n2\r\nCarrelage 60-60/);
 });
 
+test("exports DXF files whose group codes are padded and use old Mac line endings", () => {
+  const padded=emptyDxf.split("\n").map((line,index)=>index%2===0&&line?line.padStart(3," "):line).join("\r");
+  const exported=appendWorkshopLayers(padded,[{id:"zone-2",level:"RDC",layer:"Piscine",points:[{x:0,y:0},{x:4,y:0},{x:4,y:3},{x:0,y:3}]}]);
+  const parsed=new DxfParser().parseSync(exported);
+  assert.equal(parsed?.entities.find(entity=>entity.type==="LWPOLYLINE")?.layer,"Piscine");
+});
+
 test("sanitizes characters forbidden in AutoCAD layer names", () => {
   assert.equal(sanitizeLayerName("  Couloir / BOH:*  "), "Couloir - BOH--");
   assert.equal(sanitizeLayerName(""), "ZONE");
