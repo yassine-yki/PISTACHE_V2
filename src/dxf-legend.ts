@@ -71,8 +71,18 @@ function legendTable(model:any){
   const vertical=geometry.map((points:DxfPoint[])=>bounds(points)).filter((box:Box)=>box.maxY-box.minY>height*.65&&box.maxX-box.minX<width*.02&&box.minX>table.minX+width*.08&&box.minX<table.maxX-width*.08).sort((a:Box,b:Box)=>a.minX-b.minX);
   const divider=vertical[0]?.minX??table.minX+width*.28;return {texts,table,divider,rows};
 }
-function sameSignature(a:Hatch,b:LegendEntry){if(a.pattern.toUpperCase()!==b.pattern.toUpperCase()||a.solid!==b.solid)return false;if(Number.isFinite(b.trueColor))return a.trueColor===b.trueColor;if(Number.isFinite(b.colorIndex))return a.colorIndex===b.colorIndex;return true;}
-function floorHatch(hatch:Hatch){return /FLOR|FLOOR|PATT|FINISH|REV[EÊ]T|SOL/i.test(hatch.layer);}
+function floorHatch(hatch:Hatch){
+  const layer=hatch.layer.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+  if(/WALL|MUR|STRS|STRUCT|COLS|CEIL|PLAF/.test(layer))return false;
+  return /FLOR|FLOOR|REVET|(^|[-_ ])SOL($|[-_ ])/.test(layer);
+}
+function matchScore(hatch:Hatch,entry:LegendEntry){
+  if(hatch.solid!==entry.solid)return -1;let score=0;
+  if(hatch.pattern.toUpperCase()===entry.pattern.toUpperCase())score+=5;
+  if(Number.isFinite(entry.trueColor)&&hatch.trueColor===entry.trueColor)score+=5;
+  if(Number.isFinite(entry.colorIndex)&&hatch.colorIndex===entry.colorIndex)score+=2;
+  return score;
+}
 
 export function detectLegendHatchZones(source:string,model:any,level="NIVEAU"):LegendDetection{
   const hatches=parseHatches(source),table=legendTable(model);if(!table)return {entries:[],zones:[]};const entries:LegendEntry[]=[];
@@ -82,6 +92,10 @@ export function detectLegendHatchZones(source:string,model:any,level="NIVEAU"):L
     entries.push({name:description,pattern:symbol.pattern,solid:symbol.solid,colorIndex:symbol.colorIndex,trueColor:symbol.trueColor,color:rgb(symbol.trueColor,symbol.colorIndex),row:{top,bottom}});
   }
   const legendHandles=new Set(hatches.filter(hatch=>hatch.polygons.some(polygon=>{const point=center(polygon);return point.x>=table.table.minX&&point.x<=table.table.maxX&&point.y>=table.table.minY&&point.y<=table.table.maxY;})).map(hatch=>hatch.handle));
-  const zones:LegendZone[]=[];for(const entry of entries){let matches=hatches.filter(hatch=>!legendHandles.has(hatch.handle)&&sameSignature(hatch,entry));if(entry.solid&&matches.some(floorHatch))matches=matches.filter(floorHatch);for(const hatch of matches){const polygon=[...hatch.polygons].sort((a,b)=>area(b)-area(a))[0];if(area(polygon)<=1e-8)continue;zones.push({id:`hatch-${hatch.handle}`,level,layer:entry.name,points:polygon,colorIndex:entry.colorIndex,trueColor:entry.trueColor,color:entry.color});}}
+  const zones:LegendZone[]=[];for(const hatch of hatches){
+    if(legendHandles.has(hatch.handle)||(hatch.solid&&!floorHatch(hatch))||(!hatch.solid&&hatch.layer!=="0"&&!floorHatch(hatch)))continue;
+    const ranked=entries.map(entry=>({entry,score:matchScore(hatch,entry)})).sort((a,b)=>b.score-a.score),best=ranked[0];if(!best||best.score<2)continue;
+    const polygon=[...hatch.polygons].sort((a,b)=>area(b)-area(a))[0];if(area(polygon)<=1e-8)continue;zones.push({id:`hatch-${hatch.handle}`,level,layer:best.entry.name,points:polygon,colorIndex:best.entry.colorIndex,trueColor:best.entry.trueColor,color:best.entry.color});
+  }
   return {entries,zones};
 }

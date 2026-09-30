@@ -11,6 +11,7 @@ function hatch(handle:string,x:number,y:number){return [
   "72","1","10",String(x),"20",String(y+1),"11",String(x),"21",String(y),
   "97","0","75","1","76","1","52","0","41","1","77","0","78","0","98","1","10",String(x+.5),"20",String(y+.5),
 ];}
+function replacePair(pairs:string[],code:string,value:string){const copy=[...pairs],index=copy.indexOf(code);copy[index+1]=value;return copy;}
 
 test("reads the legend hatch design and finds matching plan areas",()=>{
   const source=["0","SECTION","2","ENTITIES",...hatch("LEGEND",.5,8.2),...hatch("PLAN",20,2),"0","ENDSEC","0","EOF",""] .join("\n");
@@ -27,4 +28,17 @@ test("reads the legend hatch design and finds matching plan areas",()=>{
   assert.equal(result.zones[0].layer,"Carreaux rouges");
   assert.equal(result.zones[0].level,"RDC");
   assert.equal(result.zones[0].points.length,4);
+});
+
+test("accepts floor hatch variants without mistaking wall patterns for floor areas",()=>{
+  const variant=replacePair(hatch("VARIANT",22,2),"2","FP_2");
+  const wall=replacePair(hatch("WALL",24,2),"8","A-WALL-PATT");
+  const source=["0","SECTION","2","ENTITIES",...hatch("LEGEND",.5,8.2),...hatch("PLAN",20,2),...variant,...wall,"0","ENDSEC","0","EOF",""] .join("\n");
+  const model={entities:[
+    line(0,10,10,10),line(0,9,10,9),line(0,8,10,8),line(0,7,10,7),line(0,7,0,10),line(2,7,2,10),line(10,7,10,10),
+    {type:"MTEXT",layer:"TEXT",text:"LÉGENDE DES REVÊTEMENTS",position:{x:3,y:9.5}},
+    {type:"MTEXT",layer:"TEXT",text:"Carreaux rouges",position:{x:3,y:8.5}},
+  ]};
+  const result=detectLegendHatchZones(source,model,"RDC");
+  assert.deepEqual(result.zones.map(zone=>zone.id).sort(),["hatch-PLAN","hatch-VARIANT"]);
 });
