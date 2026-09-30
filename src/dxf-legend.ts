@@ -8,6 +8,8 @@ type RawEntity={type:string;pairs:Pair[]};
 type Hatch={handle:string;layer:string;pattern:string;solid:boolean;colorIndex?:number;trueColor?:number;polygons:DxfPoint[][]};
 type Box={minX:number;maxX:number;minY:number;maxY:number};
 
+const EVACUATION_STAIRS="ESCALIERS ÉVACUATION — Grès cérame antidérapant coloré dans la masse, ép. 8 mm, format 60x60 cm, série ESSENCE de CINCA, modèle 60x60 RTF AD, avec nez de marche 30x60 RTF POL AD / RTF PDL AD — couleur à convenir avec l’architecte";
+
 const first=(entity:RawEntity,code:string)=>entity.pairs.find(pair=>pair.code===code)?.value;
 const numeric=(entity:RawEntity,code:string)=>{const value=Number(first(entity,code));return Number.isFinite(value)?value:undefined;};
 const rgb=(trueColor?:number,colorIndex?:number)=>{
@@ -61,6 +63,7 @@ function parseHatches(source:string):Hatch[]{return rawEntities(source).filter(e
 function entityPoints(entity:any):DxfPoint[]{return [...(entity.vertices||[]),...(entity.controlPoints||[]),...(entity.position?[entity.position]:[]),...(entity.startPoint?[entity.startPoint]:[]),...(entity.endPoint?[entity.endPoint]:[])].filter((point:any)=>Number.isFinite(point?.x)&&Number.isFinite(point?.y));}
 function clean(value:string){return String(value||"").replace(/\\P/g," ").replace(/\\[A-Za-z][^;]*;/g,"").replace(/[{}]/g,"").replace(/\s+/g," ").trim();}
 function bounds(points:DxfPoint[]):Box{return {minX:Math.min(...points.map(point=>point.x)),maxX:Math.max(...points.map(point=>point.x)),minY:Math.min(...points.map(point=>point.y)),maxY:Math.max(...points.map(point=>point.y))};}
+function legendName(value:string){return /^rev[eê]tement\s+escalier\s*\(.*d[eé]finir.*\)$/i.test(value.normalize("NFD").replace(/[\u0300-\u036f]/g,""))?EVACUATION_STAIRS:value;}
 function legendTable(model:any){
   const texts=(model?.entities||[]).filter((entity:any)=>["TEXT","MTEXT"].includes(entity.type)&&entityPoints(entity).length).map((entity:any)=>({text:clean(entity.text||entity.string),point:entityPoints(entity)[0]}));
   const title=texts.find((item:any)=>/L[ÉE]GENDE/i.test(item.text));if(!title)return null;
@@ -89,7 +92,7 @@ export function detectLegendHatchZones(source:string,model:any,level="NIVEAU"):L
   for(let index=0;index<table.rows.length-1;index++){
     const top=table.rows[index],bottom=table.rows[index+1],description=table.texts.filter((item:any)=>item.point.x>=table.divider&&item.point.x<=table.table.maxX&&item.point.y<top&&item.point.y>bottom).sort((a:any,b:any)=>b.point.y-a.point.y).map((item:any)=>item.text).filter((text:string)=>text&&!/^(?:SYMBOLES|DESCRIPTIONS|L[ÉE]GENDE)/i.test(text)).join(" ");
     if(!description)continue;const symbol=hatches.filter(hatch=>hatch.polygons.some(polygon=>{const point=center(polygon);return point.x>=table.table.minX&&point.x<=table.divider&&point.y<top&&point.y>bottom;})).sort((a,b)=>Math.max(...b.polygons.map(area))-Math.max(...a.polygons.map(area)))[0];if(!symbol)continue;
-    entries.push({name:description,pattern:symbol.pattern,solid:symbol.solid,colorIndex:symbol.colorIndex,trueColor:symbol.trueColor,color:rgb(symbol.trueColor,symbol.colorIndex),row:{top,bottom}});
+    entries.push({name:legendName(description),pattern:symbol.pattern,solid:symbol.solid,colorIndex:symbol.colorIndex,trueColor:symbol.trueColor,color:rgb(symbol.trueColor,symbol.colorIndex),row:{top,bottom}});
   }
   const legendHandles=new Set(hatches.filter(hatch=>hatch.polygons.some(polygon=>{const point=center(polygon);return point.x>=table.table.minX&&point.x<=table.table.maxX&&point.y>=table.table.minY&&point.y<=table.table.maxY;})).map(hatch=>hatch.handle));
   const zones:LegendZone[]=[];for(const hatch of hatches){

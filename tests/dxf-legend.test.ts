@@ -42,3 +42,15 @@ test("accepts floor hatch variants without mistaking wall patterns for floor are
   const result=detectLegendHatchZones(source,model,"RDC");
   assert.deepEqual(result.zones.map(zone=>zone.id).sort(),["hatch-PLAN","hatch-VARIANT"]);
 });
+
+test("names the generic stair symbol with the evacuation-stair specification",()=>{
+  const source=["0","SECTION","2","ENTITIES",...hatch("LEGEND",.5,8.2),...hatch("STAIRS",20,2),"0","ENDSEC","0","EOF",""] .join("\n");
+  const model={entities:[
+    line(0,10,10,10),line(0,9,10,9),line(0,8,10,8),line(0,7,10,7),line(0,7,0,10),line(2,7,2,10),line(10,7,10,10),
+    {type:"MTEXT",layer:"TEXT",text:"LÉGENDE DES REVÊTEMENTS",position:{x:3,y:9.5}},
+    {type:"MTEXT",layer:"TEXT",text:"Revêtement escalier (A définir)",position:{x:3,y:8.5}},
+  ]};
+  const result=detectLegendHatchZones(source,model,"SS-1");
+  assert.match(result.entries[0].name,/^ESCALIERS ÉVACUATION/);
+  assert.equal(result.zones[0].layer,result.entries[0].name);
+});
