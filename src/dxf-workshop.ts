@@ -44,15 +44,15 @@ function polygonArea(points:Point[]){let sum=0;for(let index=0;index<points.leng
 function polygonCenter(points:Point[]){return {x:points.reduce((sum,point)=>sum+point.x,0)/points.length,y:points.reduce((sum,point)=>sum+point.y,0)/points.length};}
 function pointInPolygon(point:Point,polygon:Point[]){let inside=false;for(let index=0,previous=polygon.length-1;index<polygon.length;previous=index++){const a=polygon[index],b=polygon[previous];if((a.y>point.y)!==(b.y>point.y)&&point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
 function levelName(value:string){return value.match(/\b(?:SS\s*-?\s*\d+|RDC|R\s*\+\s*\d+|N(?:IVEAU)?\s*0?\d+)\b/i)?.[0]?.replace(/\s+/g,"").toUpperCase()||"";}
-function usefulLayer(value:string){const normalized=value.trim(),generic=/^(?:0|DEFPOINTS?|CONTOURS?|POLYLINES?|HATCH|HACHURES?|TEXTES?|ANNOTATIONS?|COTES?|DIMENSIONS?|MURS?|WALLS?|A-WALL)$/i;return normalized&&!generic.test(normalized)?normalized:"";}
+function usefulLayer(value:string){const normalized=value.trim(),generic=/^(?:0|DEFPOINTS?|ZONES?|ESPACES?|CONTOURS?|POLYLINES?|HATCH|HACHURES?|TEXTES?|ANNOTATIONS?|COTES?|DIMENSIONS?|MURS?|WALLS?|A-WALL)$/i;return normalized&&!generic.test(normalized)?normalized:"";}
 function inferredLayer(texts:string[],sourceLayer:string){
   const joined=texts.join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
   if(/SALLE\s+DE\s+BAIN|\bSDB\b/.test(joined))return "Salle de bain";
   if(/\bCHAMBRE\b/.test(joined))return "Chambre";
-  if(/\bCOULOIR\b|\bCIRCULATION\b/.test(joined))return "Couloir";
-  if(/\bHALL\b/.test(joined))return "Hall";
-  const layer=usefulLayer(sourceLayer);if(layer)return layer;
-  return texts.find(text=>/[A-Za-zÀ-ÿ]{3}/.test(text)&&!levelName(text)&&!/^\s*(?:\d+(?:[.,]\d+)?\s*(?:M[²2]?|CM|MM)?|CHAMBRE\s*\d+)\s*$/i.test(text))?.trim()||"";
+  const namedArea=texts.find(text=>/\bCOULOIR\b|\bCIRCULATION\b|\bHALL\b|\bPISCINE\b/i.test(text));if(namedArea)return namedArea.trim();
+  const label=texts.find(text=>/[A-Za-zÀ-ÿ]{3}/.test(text)&&!levelName(text)&&!/^\s*(?:\d+(?:[.,]\d+)?\s*(?:M[²2]?|CM|MM)?|CHAMBRE\s*\d+|STANDARD|SUITE(?:\s+(?:JUNIOR|EXECUTIVE))?)\s*$/i.test(text))?.trim();
+  if(label)return label;
+  return usefulLayer(sourceLayer);
 }
 export function detectClosedSpaces(model:any,fallbackLevel="NIVEAU"):WorkshopDetection{
   const texts:DetectedText[]=(model?.entities||[]).filter((entity:any)=>["TEXT","MTEXT"].includes(entity.type)&&entityPoint(entity)).map((entity:any)=>({text:cleanText(entity),point:entityPoint(entity)})).filter((item:DetectedText)=>item.text);
@@ -66,8 +66,8 @@ export function detectClosedSpaces(model:any,fallbackLevel="NIVEAU"):WorkshopDet
     const closed=Boolean(entity.shape||entity.isClosed)||distance(points[0],points[points.length-1])<=Math.max(diagonal*.02,1e-5);if(!closed)return null;
     if(distance(points[0],points[points.length-1])<=Math.max(diagonal*.02,1e-5))points=points.slice(0,-1);if(points.length<3)return null;
     const area=polygonArea(points);if(area<=planArea*1e-9||area>=planArea*.75)return null;
-    const contained=texts.filter(item=>pointInPolygon(item.point,points)).map(item=>item.text),layer=inferredLayer(contained,String(entity.layer||""));if(!layer)return null;
-    const center=polygonCenter(points),level=levelTexts.length?[...levelTexts].sort((a,b)=>distance(center,a.point)-distance(center,b.point))[0].level:fallbackLevel;
+    const center=polygonCenter(points),contained=texts.filter(item=>pointInPolygon(item.point,points)).sort((a,b)=>distance(center,a.point)-distance(center,b.point)).map(item=>item.text),layer=inferredLayer(contained,String(entity.layer||""));if(!layer)return null;
+    const level=levelTexts.length?[...levelTexts].sort((a,b)=>distance(center,a.point)-distance(center,b.point))[0].level:fallbackLevel;
     return {id:"auto-"+String(entity.handle||crypto.randomUUID()),level,layer,points,area,center};
   }).filter(Boolean) as Array<Zone&{area:number;center:Point}>;
   const unique=candidates.filter((zone,index,list)=>list.findIndex(other=>other.layer.toLocaleLowerCase("fr")===zone.layer.toLocaleLowerCase("fr")&&Math.abs(other.area-zone.area)<=Math.max(1e-6,zone.area*.002)&&distance(other.center,zone.center)<=Math.max(1e-5,Math.sqrt(zone.area)*.01))===index).slice(0,3000);

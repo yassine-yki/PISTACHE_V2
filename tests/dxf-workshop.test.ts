@@ -58,3 +58,13 @@ test("ignores open geometry and unnamed technical contours", () => {
   ]});
   assert.equal(result.zones.length,0);
 });
+
+test("detects general named spaces instead of limiting detection to rooms", () => {
+  const rectangle=(x:number,label:string)=>[
+    {type:"LWPOLYLINE",layer:"ZONE",shape:true,vertices:[{x,y:0},{x:x+12,y:0},{x:x+12,y:8},{x,y:8}]},
+    {type:"MTEXT",text:label,position:{x:x+6,y:4}},
+  ];
+  const result=detectClosedSpaces({entities:[...rectangle(0,"Piscine extérieure"),...rectangle(20,"Local technique"),...rectangle(40,"Stockage BOH")]},"RDC");
+  assert.deepEqual(result.zones.map(zone=>zone.layer),["Piscine extérieure","Local technique","Stockage BOH"]);
+  assert.ok(result.zones.every(zone=>zone.level==="RDC"));
+});
