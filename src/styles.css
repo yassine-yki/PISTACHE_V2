@@ -833,6 +833,10 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
 .dxf-workshop { display:grid; grid-template-columns:minmax(320px,390px) minmax(0,1fr); min-height:0; height:calc(100vh - 83px); background:var(--surface-soft); }
 .dxf-workshop-panel { display:grid; align-content:start; gap:12px; min-height:0; overflow:auto; padding:16px; border-right:1px solid var(--line); background:#fff; }
 .dxf-workshop-panel .page-heading { margin-bottom:0; }
+.workshop-detection-summary { margin:0; padding:10px 12px; border:1px solid #c9d8c2; border-radius:8px; background:#f0f6ed; color:var(--green-dark); font-size:13px; font-weight:750; }
+.workshop-manual-tools { border:1px solid var(--line); border-radius:9px; background:var(--surface-soft); }
+.workshop-manual-tools summary { padding:11px 12px; cursor:pointer; color:var(--muted); font-size:13px; font-weight:750; }
+.workshop-manual-tools > div { display:grid; gap:11px; padding:0 11px 11px; }
 .workshop-grid-two { display:grid; grid-template-columns:minmax(100px,.75fr) minmax(0,1.25fr); gap:8px; align-items:end; }
 .inline-create { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; align-items:end; }
 .inline-create .field { min-width:0; }

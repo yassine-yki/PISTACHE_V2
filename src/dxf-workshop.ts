@@ -2,6 +2,8 @@ type Point={x:number;y:number};
 type Zone={id:string;level:string;layer:string;points:Point[]};
 type WorkshopDraft={fileName:string;levels:string[];layers:string[];zones:Zone[]};
 type Bounds={minX:number;minY:number;maxX:number;maxY:number};
+type DetectedText={text:string;point:Point};
+export type WorkshopDetection={zones:Zone[];levels:string[];layers:string[];closedCount:number};
 
 declare global { interface Window { DxfParser:new()=>{parseSync:(source:string)=>any}; } }
 
@@ -12,6 +14,7 @@ let projectId="mixed-use",canEdit=false,initialized=false,source="",fileName="",
 let levels=["NIVEAU"],layers:string[]=[],zones:Zone[]=[],activePoints:Point[]=[],tool:"draw"|"pan"="draw";
 let bounds:Bounds={minX:0,minY:0,maxX:100,maxY:100},view={x:0,y:-100,width:100,height:100};
 let panStart:{x:number;y:number;viewX:number;viewY:number}|null=null;
+let detectionSummary="Aucun plan analysé.";
 
 function draftKey(){return `muc-dxf-workshop:${projectId}`;}
 function loadDraft(){fileName="";levels=["NIVEAU"];layers=[];zones=[];activePoints=[];try{const saved=JSON.parse(localStorage.getItem(draftKey())||"null") as WorkshopDraft|null;if(saved){fileName=saved.fileName||"";levels=saved.levels?.length?saved.levels:["NIVEAU"];layers=saved.layers||[];zones=saved.zones||[];}}catch{/* Brouillon illisible ignoré. */}}
@@ -35,6 +38,41 @@ function computeBounds(model:any):Bounds{
   const points=allPoints(model);if(!points.length)return {minX:0,minY:0,maxX:100,maxY:100};
   const minX=Math.min(...points.map(p=>p.x)),maxX=Math.max(...points.map(p=>p.x)),minY=Math.min(...points.map(p=>p.y)),maxY=Math.max(...points.map(p=>p.y));
   const padding=Math.max(maxX-minX,maxY-minY)*.02||1;return {minX:minX-padding,minY:minY-padding,maxX:maxX+padding,maxY:maxY+padding};
+}
+function distance(a:Point,b:Point){return Math.hypot(a.x-b.x,a.y-b.y);}
+function polygonArea(points:Point[]){let sum=0;for(let index=0;index<points.length;index++){const current=points[index],next=points[(index+1)%points.length];sum+=current.x*next.y-next.x*current.y;}return Math.abs(sum/2);}
+function polygonCenter(points:Point[]){return {x:points.reduce((sum,point)=>sum+point.x,0)/points.length,y:points.reduce((sum,point)=>sum+point.y,0)/points.length};}
+function pointInPolygon(point:Point,polygon:Point[]){let inside=false;for(let index=0,previous=polygon.length-1;index<polygon.length;previous=index++){const a=polygon[index],b=polygon[previous];if((a.y>point.y)!==(b.y>point.y)&&point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
+function levelName(value:string){return value.match(/\b(?:SS\s*-?\s*\d+|RDC|R\s*\+\s*\d+|N(?:IVEAU)?\s*0?\d+)\b/i)?.[0]?.replace(/\s+/g,"").toUpperCase()||"";}
+function usefulLayer(value:string){const normalized=value.trim(),generic=/^(?:0|DEFPOINTS?|CONTOURS?|POLYLINES?|HATCH|HACHURES?|TEXTES?|ANNOTATIONS?|COTES?|DIMENSIONS?|MURS?|WALLS?|A-WALL)$/i;return normalized&&!generic.test(normalized)?normalized:"";}
+function inferredLayer(texts:string[],sourceLayer:string){
+  const joined=texts.join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+  if(/SALLE\s+DE\s+BAIN|\bSDB\b/.test(joined))return "Salle de bain";
+  if(/\bCHAMBRE\b/.test(joined))return "Chambre";
+  if(/\bCOULOIR\b|\bCIRCULATION\b/.test(joined))return "Couloir";
+  if(/\bHALL\b/.test(joined))return "Hall";
+  const layer=usefulLayer(sourceLayer);if(layer)return layer;
+  return texts.find(text=>/[A-Za-zÀ-ÿ]{3}/.test(text)&&!levelName(text)&&!/^\s*(?:\d+(?:[.,]\d+)?\s*(?:M[²2]?|CM|MM)?|CHAMBRE\s*\d+)\s*$/i.test(text))?.trim()||"";
+}
+export function detectClosedSpaces(model:any,fallbackLevel="NIVEAU"):WorkshopDetection{
+  const texts:DetectedText[]=(model?.entities||[]).filter((entity:any)=>["TEXT","MTEXT"].includes(entity.type)&&entityPoint(entity)).map((entity:any)=>({text:cleanText(entity),point:entityPoint(entity)})).filter((item:DetectedText)=>item.text);
+  const levelTexts=texts.map(item=>({...item,level:levelName(item.text)})).filter(item=>item.level);
+  const detectedLevels=[...new Set(levelTexts.map(item=>item.level))];
+  const planBounds=computeBounds(model),planArea=Math.max(1,(planBounds.maxX-planBounds.minX)*(planBounds.maxY-planBounds.minY));
+  const candidates=(model?.entities||[]).filter((entity:any)=>["LWPOLYLINE","POLYLINE"].includes(entity.type)&&entity.vertices?.length>=3).map((entity:any)=>{
+    let points:Point[]=entity.vertices.map((point:any)=>({x:Number(point.x),y:Number(point.y)})).filter((point:Point)=>Number.isFinite(point.x)&&Number.isFinite(point.y));
+    if(points.length<3)return null;
+    const diagonal=Math.hypot(Math.max(...points.map(point=>point.x))-Math.min(...points.map(point=>point.x)),Math.max(...points.map(point=>point.y))-Math.min(...points.map(point=>point.y)));
+    const closed=Boolean(entity.shape||entity.isClosed)||distance(points[0],points[points.length-1])<=Math.max(diagonal*.02,1e-5);if(!closed)return null;
+    if(distance(points[0],points[points.length-1])<=Math.max(diagonal*.02,1e-5))points=points.slice(0,-1);if(points.length<3)return null;
+    const area=polygonArea(points);if(area<=planArea*1e-9||area>=planArea*.75)return null;
+    const contained=texts.filter(item=>pointInPolygon(item.point,points)).map(item=>item.text),layer=inferredLayer(contained,String(entity.layer||""));if(!layer)return null;
+    const center=polygonCenter(points),level=levelTexts.length?[...levelTexts].sort((a,b)=>distance(center,a.point)-distance(center,b.point))[0].level:fallbackLevel;
+    return {id:"auto-"+String(entity.handle||crypto.randomUUID()),level,layer,points,area,center};
+  }).filter(Boolean) as Array<Zone&{area:number;center:Point}>;
+  const unique=candidates.filter((zone,index,list)=>list.findIndex(other=>other.layer.toLocaleLowerCase("fr")===zone.layer.toLocaleLowerCase("fr")&&Math.abs(other.area-zone.area)<=Math.max(1e-6,zone.area*.002)&&distance(other.center,zone.center)<=Math.max(1e-5,Math.sqrt(zone.area)*.01))===index).slice(0,3000);
+  const resultZones:Zone[]=unique.map(({area:_area,center:_center,...zone})=>zone),resultLevels=detectedLevels.length?detectedLevels:[fallbackLevel];
+  return {zones:resultZones,levels:resultLevels,layers:[...new Set(resultZones.map(zone=>zone.layer))].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true})),closedCount:candidates.length};
 }
 function pointsPath(points:Point[],close=false){return points.length?`M ${points.map(point=>`${numberValue(point.x)} ${numberValue(point.y)}`).join(" L ")}${close?" Z":""}`:"";}
 function curvedPoints(entity:any){const start=entity.type==="CIRCLE"?0:entity.startAngle||0;let length=entity.type==="CIRCLE"?Math.PI*2:entity.angleLength;if(!Number.isFinite(length)||length<=0)length+=Math.PI*2;const segments=Math.max(18,Math.ceil(Math.abs(length)/(Math.PI/24)));return Array.from({length:segments+1},(_,index)=>({x:entity.center.x+Math.cos(start+length*index/segments)*entity.radius,y:entity.center.y+Math.sin(start+length*index/segments)*entity.radius}));}
@@ -70,6 +108,7 @@ function renderControls(){
   layer.innerHTML=layers.length?layers.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join(""):'<option value="">Ajoutez un élément de légende</option>';if(layers.includes(selectedLayer))layer.value=selectedLayer;
   byId("workshopZoneList").innerHTML=zones.length?zones.map((zone,index)=>`<article><i style="--zone:${colorFor(zone.layer)}"></i><span><strong>${escapeHtml(zone.layer)}</strong><small>${escapeHtml(zone.level)} · ${zone.points.length} sommets</small></span><button type="button" data-workshop-delete="${index}">Supprimer</button></article>`).join(""):'<p class="access-hint">Aucun contour fermé.</p>';
   byId("workshopPlanTitle").textContent=fileName||"Aucun plan importé";byId("workshopPlanSummary").textContent=`${zones.length} contour(s) · ${layers.length} calque(s)`;
+  byId("workshopDetectionSummary").textContent=detectionSummary;
   byId("workshopDraw").classList.toggle("active",tool==="draw");byId("workshopPan").classList.toggle("active",tool==="pan");
   byId("workshopSvg").classList.toggle("panning",tool==="pan");
 }
@@ -101,13 +140,23 @@ function detectMetadata(){
   const suggestions:string[]=[...new Set<string>(texts.filter((text:string)=>!/^\d+(?:[.,]\d+)?$/.test(text)&&!detectedLevels.includes(text.toUpperCase())))].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true})).slice(0,250);
   byId("workshopDetectedTexts").innerHTML=suggestions.map(text=>`<option value="${escapeHtml(text)}"></option>`).join("");
 }
+function runAutomaticDetection(replace=true){
+  if(!dxf){message("Importez d’abord un fichier DXF.",true);return;}
+  const fallback=byId<HTMLSelectElement>("workshopLevel").value||levels[0]||"NIVEAU",detected=detectClosedSpaces(dxf,fallback);
+  levels=[...new Set([...levels,...detected.levels])];layers=[...new Set([...layers,...detected.layers])].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));
+  if(replace)zones=detected.zones;
+  detectionSummary=`${detected.zones.length} espace(s) reconnu(s), ${detected.layers.length} calque(s) et ${detected.levels.length} niveau(x).`;
+  activePoints=[];persist();render();
+  message(detected.zones.length?"Détection terminée. Vérifiez visuellement les zones avant l’export.":"Aucun espace nommé n’a été reconnu. Le plan doit contenir des polylignes fermées associées à des textes ou à des calques nommés.",!detected.zones.length);
+}
 async function importFile(file:File){
   if(!file.name.toLowerCase().endsWith(".dxf")){message("Exportez d’abord le plan AutoCAD au format DXF.",true);return;}
-  source=await file.text();try{dxf=new window.DxfParser().parseSync(source);if(!dxf)throw new Error("DXF vide");fileName=file.name;bounds=computeBounds(dxf);fit();detectMetadata();persist();render();message("DXF chargé. Ajoutez les noms de la légende puis dessinez les contours fermés.");}catch(error){dxf=null;message(`DXF illisible : ${error instanceof Error?error.message:String(error)}`,true);render();}
+  source=await file.text();try{const sameDraft=fileName===file.name&&zones.length>0;dxf=new window.DxfParser().parseSync(source);if(!dxf)throw new Error("DXF vide");fileName=file.name;bounds=computeBounds(dxf);fit();detectMetadata();if(sameDraft){detectionSummary=`${zones.length} espace(s) restauré(s) depuis le brouillon. Relancez la détection pour les remplacer.`;persist();render();message("DXF chargé avec votre brouillon existant.");}else runAutomaticDetection(true);}catch(error){dxf=null;message(`DXF illisible : ${error instanceof Error?error.message:String(error)}`,true);render();}
 }
 function initialize(){
   if(initialized)return;initialized=true;
   byId<HTMLInputElement>("workshopFile").addEventListener("change",event=>{const file=(event.target as HTMLInputElement).files?.[0];if(file)void importFile(file);});
+  byId("workshopAutoDetect").addEventListener("click",()=>runAutomaticDetection(true));
   byId("workshopAddLevel").addEventListener("submit",event=>{event.preventDefault();const input=byId<HTMLInputElement>("workshopLevelName"),value=input.value.trim();if(value&&!levels.includes(value)){levels.push(value);input.value="";persist();renderControls();}});
   byId("workshopAddLegend").addEventListener("submit",event=>{event.preventDefault();const input=byId<HTMLInputElement>("workshopLegendName"),value=input.value.trim();if(value&&!layers.includes(value)){layers.push(value);input.value="";persist();renderControls();byId<HTMLSelectElement>("workshopLayer").value=value;}});
   byId("workshopDraw").addEventListener("click",()=>{tool="draw";renderControls();});byId("workshopPan").addEventListener("click",()=>{tool="pan";renderControls();});
@@ -123,6 +172,6 @@ function initialize(){
   svg.addEventListener("wheel",event=>{if(!dxf)return;event.preventDefault();const factor=event.deltaY>0?1.15:.87,point=svgPoint(event as unknown as PointerEvent);if(!point)return;const cursorY=-point.y,rx=(point.x-view.x)/view.width,ry=(cursorY-view.y)/view.height;view.width*=factor;view.height*=factor;view.x=point.x-rx*view.width;view.y=cursorY-ry*view.height;renderSvg();},{passive:false});
 }
 
-export function openDxfWorkshop(nextProjectId:string,editable:boolean){projectId=nextProjectId;canEdit=editable;initialize();loadDraft();render();message(fileName?"Réimportez le DXF original pour continuer ou exporter le brouillon.":"Importez un fichier DXF pour commencer.");}
+export function openDxfWorkshop(nextProjectId:string,editable:boolean){projectId=nextProjectId;canEdit=editable;initialize();loadDraft();detectionSummary=zones.length?`${zones.length} espace(s) restauré(s) depuis le brouillon.`:"Aucun plan analysé.";render();message(fileName?"Réimportez le DXF original pour afficher et exporter le brouillon.":"Importez un fichier DXF : la détection démarrera automatiquement.");}
 
 export {sanitizeLayerName};

@@ -231,14 +231,18 @@
     </main>
     <main id="dxfWorkshop" class="dxf-workshop" hidden>
       <aside class="dxf-workshop-panel">
-        <div class="page-heading"><span class="eyebrow">Préparation AutoCAD</span><h2>Calques et polylignes</h2><p>Importez un DXF, choisissez un niveau et un élément de légende, puis fermez le contour de chaque espace.</p></div>
+        <div class="page-heading"><span class="eyebrow">Préparation AutoCAD</span><h2>Détection automatique</h2><p>Importez un DXF : les contours fermés, les niveaux et les noms présents dans le plan sont analysés automatiquement.</p></div>
         <label class="field"><span>Plan AutoCAD au format DXF</span><input id="workshopFile" type="file" accept=".dxf,text/plain"></label>
+        <button id="workshopAutoDetect" class="button primary" type="button">Relancer la détection automatique</button>
+        <p id="workshopDetectionSummary" class="workshop-detection-summary">Aucun plan analysé.</p>
+        <details class="workshop-manual-tools"><summary>Corriger exceptionnellement la détection</summary><div>
         <div class="workshop-grid-two"><label class="field"><span>Niveau</span><select id="workshopLevel"><option value="NIVEAU">NIVEAU</option></select></label><form id="workshopAddLevel" class="inline-create"><label class="field"><span>Ajouter un niveau</span><input id="workshopLevelName" maxlength="60" placeholder="Ex. R+2, RDC, SS-1"></label><button class="button secondary" type="submit">Ajouter</button></form></div>
         <form id="workshopAddLegend" class="inline-create"><label class="field"><span>Nom de la légende / du calque</span><input id="workshopLegendName" list="workshopDetectedTexts" maxlength="120" placeholder="Ex. Chambre, Couloir, Carrelage 60×60"></label><button class="button secondary" type="submit">Ajouter</button></form>
         <datalist id="workshopDetectedTexts"></datalist>
         <label class="field"><span>Calque actif</span><select id="workshopLayer"><option value="">Ajoutez un élément de légende</option></select></label>
         <div class="workshop-tools" aria-label="Outils de dessin"><button id="workshopDraw" class="active" type="button">⌁ Polyligne</button><button id="workshopPan" type="button">✋ Main</button><button id="workshopClose" type="button">Fermer le contour</button><button id="workshopUndoPoint" type="button">Annuler le point</button></div>
         <div class="workshop-tools"><button id="workshopDeleteZone" type="button">Supprimer le dernier contour</button><button id="workshopClear" type="button">Tout effacer</button></div>
+        </div></details>
         <div class="workshop-actions"><button id="workshopExportDxf" class="button primary" type="button">Exporter le DXF avec calques</button><button id="workshopExportJson" class="button secondary" type="button">Sauvegarder le brouillon</button></div>
         <p id="workshopStatus" class="access-hint" role="status">Importez un fichier DXF pour commencer.</p>
         <div id="workshopZoneList" class="workshop-zone-list"></div>
