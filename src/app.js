@@ -62,7 +62,7 @@ const state = {
   selectedRoom: 203,
   selectedFloor: CURRENT_FLOOR,
   selectedZone: "bedroom",
-  selectedTask: "partitions",
+  selectedTask: "",
   selectedType: "all",
   selectedBlock: "all",
   taskQuery: "",
@@ -511,11 +511,7 @@ function taskTypeOrder(type) {
 
 function normalizeTaskSelection() {
   const tasks = currentTasks();
-  if (!tasks.length) {
-    state.selectedTask = "";
-    return;
-  }
-  if (tasks.length && !tasks.some((task) => task.id === state.selectedTask)) state.selectedTask = tasks[0].id;
+  if (!tasks.some((task) => task.id === state.selectedTask)) state.selectedTask = "";
 }
 
 function renderTypeTabs() {
@@ -559,7 +555,7 @@ function renderTaskSelect() {
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(task);
   }
-  elements.taskSelect.innerHTML = tasks.length ? [...groups.entries()].map(([group, groupTasks]) =>
+  elements.taskSelect.innerHTML = tasks.length ? '<option value="">Choisir une tâche</option>'+[...groups.entries()].map(([group, groupTasks]) =>
     `<optgroup label="${group}">${groupTasks.map((task) => `<option value="${task.id}">${escapeSvgText(task.label)}</option>`).join("")}</optgroup>`).join("")
     : '<option value="">Tâches à définir</option>';
   elements.taskSelect.disabled = !tasks.length;
@@ -572,6 +568,11 @@ function filteredRooms() {
 
 function renderSummary() {
   const availableRooms = filteredRooms();
+  if (!state.selectedTask) {
+    elements.summaryStrip.innerHTML = `<span class="summary-item"><strong>${availableRooms.length}</strong> ${state.selectedZone === "loggia" ? "loggias" : "chambres"}</span>
+      <span class="summary-item">Choisissez une tâche pour afficher son avancement</span>`;
+    return;
+  }
   const records = availableRooms.map((room) => getRecord(room.number, state.selectedZone, state.selectedTask));
   const done = records.filter((record) => record.progress >= 100).length;
   const inProgress = records.filter((record) => record.progress > 0 && record.progress < 100).length;
@@ -604,7 +605,7 @@ function renderTaskList() {
     elements.taskEditor.hidden = true;
     return;
   }
-  elements.taskEditor.hidden = !currentUser;
+  elements.taskEditor.hidden = !currentUser || !state.selectedTask;
   const query = state.taskQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const visibleTasks = tasks.filter((task) => task.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(query));
   const groups = new Map();
@@ -717,6 +718,7 @@ function selectRoom(number, center = false) {
   if (!roomAccessible(number)) return;
   resetCorrectionState();
   state.selectedRoom = number;
+  state.selectedTask = "";
   if (!roomMatchesType(number)) state.selectedType = "all";
   render();
   if (center) centerOnRoom(number);
@@ -726,8 +728,8 @@ function selectRoom(number, center = false) {
 function setZone(zone) {
   resetCorrectionState();
   state.selectedZone = zone;
+  state.selectedTask = "";
   state.taskQuery = "";
-  normalizeTaskSelection();
   render();
 }
 
@@ -736,7 +738,10 @@ function setType(type) {
   resetCorrectionState();
   state.selectedType = type;
   const changedRoom = !roomMatchesFilters(state.selectedRoom);
-  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
+  if (changedRoom) {
+    state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
+    state.selectedTask = "";
+  }
   render();
 }
 
@@ -745,7 +750,10 @@ function setBlock(block) {
   resetCorrectionState();
   state.selectedBlock = block;
   const changedRoom = !roomMatchesFilters(state.selectedRoom);
-  if (changedRoom) state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
+  if (changedRoom) {
+    state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
+    state.selectedTask = "";
+  }
   render();
 }
 
@@ -956,6 +964,7 @@ async function loadDxfSource(source, name, size, version = ++planLoadVersion) {
     loggiaRooms.clear();
     model.loggias.filter((loggia) => loggia.number !== null).forEach((loggia) => loggiaRooms.add(loggia.number));
     state.selectedRoom = rooms[0].number;
+    state.selectedTask = "";
     state.selectedType = "all";
     renderDxfBase();
     render();
@@ -985,7 +994,7 @@ function clearPlan(message) {
   state.selectedBlock = "all";
   state.selectedType = "all";
   state.selectedZone = "bedroom";
-  state.selectedTask = "partitions";
+  state.selectedTask = "";
   elements.dxfPlan.innerHTML = "";
   elements.planEmpty.hidden = false;
   elements.planEmpty.textContent = message;
@@ -1059,6 +1068,7 @@ async function changeFloor(floorId) {
   state.records=currentFloorRecords();
   state.selectedBlock="all";
   state.selectedType="all";
+  state.selectedTask="";
   elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
   await loadConfiguredPlan(activeProjectDefinition);
   state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
