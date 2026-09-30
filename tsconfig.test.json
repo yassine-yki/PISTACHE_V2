@@ -14,6 +14,7 @@
     "src/model.ts",
     "src/storage.ts",
     "src/dxf-identification.ts",
+    "src/dxf-workshop.ts",
     "src/repositories/**/*.ts",
     "tests/**/*.ts"
   ]

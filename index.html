@@ -40,8 +40,8 @@
       <div class="project-list" id="projectList"></div>
     </dialog>
     <dialog class="project-dialog tracking-mode-dialog" id="trackingModeDialog" aria-labelledby="trackingModeTitle">
-      <div class="project-dialog-header"><span class="eyebrow">Projet MUC</span><h2 id="trackingModeTitle">Quel suivi voulez-vous ouvrir ?</h2><p>Les deux suivis restent séparés dans le même projet.</p></div>
-      <div class="tracking-mode-list"><button type="button" data-tracking-mode="rooms"><strong>Suivi des chambres</strong><span>Chambres, salles de bain, tâches et plans DXF du R+2 au R+5.</span></button><button type="button" data-tracking-mode="boh"><strong>BOH - Carrelage</strong><span>Avancement des revêtements de sol par finition et par étage, du SS-2 au N06.</span></button></div>
+      <div class="project-dialog-header"><span class="eyebrow">Projet MUC</span><h2 id="trackingModeTitle">Quel outil voulez-vous ouvrir ?</h2><p>Les suivis et la préparation des plans restent séparés dans le même projet.</p></div>
+      <div class="tracking-mode-list"><button type="button" data-tracking-mode="rooms"><strong>Suivi des chambres</strong><span>Chambres, salles de bain, tâches et plans DXF du R+2 au R+5.</span></button><button type="button" data-tracking-mode="boh"><strong>BOH - Carrelage</strong><span>Avancement des revêtements de sol par finition et par étage, du SS-2 au N06.</span></button><button type="button" data-tracking-mode="workshop" data-admin-only><strong>Préparer un plan AutoCAD</strong><span>Délimiter les espaces par polylignes fermées et créer les calques de la légende.</span></button></div>
     </dialog>
 
     <header class="topbar">
@@ -53,7 +53,7 @@
         </div>
       </div>
       <span class="sr-only" id="importStatus" aria-live="polite"></span>
-      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="modeSwitchButton" hidden>Changer de suivi</button><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
+      <div class="account-actions"><span id="sessionRole" class="role-chip"></span><span class="save-state" id="saveStatus" role="status"></span><button class="button secondary" type="button" id="modeSwitchButton" hidden>Changer d’outil</button><button class="button secondary" type="button" id="syncButton" hidden>Synchronisation</button><button class="button secondary" type="button" id="profileButton" hidden>Mon profil</button><button class="button secondary" type="button" id="signInButton" hidden>Se connecter</button></div>
     </header>
     <nav id="adminNavigation" class="admin-navigation" aria-label="Espace administrateur" hidden><button type="button" data-admin-page="dashboard" class="active">Tableau de bord</button><button type="button" data-admin-page="team">Équipe & tâches</button><button type="button" data-admin-page="tasks">Gestion des tâches</button><button type="button" data-admin-page="history">Activité</button><button type="button" data-admin-page="photos">Photos</button><span class="admin-exports"><button type="button" id="exportExcel">Exporter Excel</button><button type="button" id="exportDailyPdf">Exporter PDF journalier</button></span></nav>
 
@@ -228,6 +228,25 @@
         <div id="bohPlanViewport" class="boh-plan-viewport"><div id="bohPlanLayer" class="boh-plan-layer"><img id="bohPlanImage" alt="Plan de repérage des revêtements de sol BOH"><canvas id="bohMarkupCanvas" aria-label="Délimitation de l’avancement sur le plan"></canvas></div><button type="button" id="bohOpenMarkup" class="boh-open-markup" hidden>▭ Rectangle / ⌁ Polyligne</button><div class="boh-markup-legend"><span><i class="done"></i>Terminé</span><span><i class="progress"></i>En cours</span><span><i class="todo"></i>À faire</span></div><div class="boh-zoom-controls"><button type="button" id="bohZoomIn" aria-label="Agrandir">+</button><button type="button" id="bohZoomOut" aria-label="Réduire">−</button><button type="button" id="bohFitPlan">Ajuster</button><output id="bohZoomValue">100 %</output></div><div id="bohDraftActions" class="draft-actions boh-draft-actions" hidden><button class="button primary" type="button" id="confirmBohProgress">Valider</button><button class="button secondary" type="button" id="cancelBohProgress">Annuler</button></div></div>
       </section>
       <aside class="boh-progress-panel"><div class="page-heading"><span class="eyebrow">Finitions de la légende</span><h2>Avancement par zone</h2><p>Chaque finition est suivie séparément pour l’étage affiché.</p></div><p id="bohStatus" role="status"></p><div id="bohFinishList" class="boh-finish-list"></div></aside>
+    </main>
+    <main id="dxfWorkshop" class="dxf-workshop" hidden>
+      <aside class="dxf-workshop-panel">
+        <div class="page-heading"><span class="eyebrow">Préparation AutoCAD</span><h2>Calques et polylignes</h2><p>Importez un DXF, choisissez un niveau et un élément de légende, puis fermez le contour de chaque espace.</p></div>
+        <label class="field"><span>Plan AutoCAD au format DXF</span><input id="workshopFile" type="file" accept=".dxf,text/plain"></label>
+        <div class="workshop-grid-two"><label class="field"><span>Niveau</span><select id="workshopLevel"><option value="NIVEAU">NIVEAU</option></select></label><form id="workshopAddLevel" class="inline-create"><label class="field"><span>Ajouter un niveau</span><input id="workshopLevelName" maxlength="60" placeholder="Ex. R+2, RDC, SS-1"></label><button class="button secondary" type="submit">Ajouter</button></form></div>
+        <form id="workshopAddLegend" class="inline-create"><label class="field"><span>Nom de la légende / du calque</span><input id="workshopLegendName" list="workshopDetectedTexts" maxlength="120" placeholder="Ex. Chambre, Couloir, Carrelage 60×60"></label><button class="button secondary" type="submit">Ajouter</button></form>
+        <datalist id="workshopDetectedTexts"></datalist>
+        <label class="field"><span>Calque actif</span><select id="workshopLayer"><option value="">Ajoutez un élément de légende</option></select></label>
+        <div class="workshop-tools" aria-label="Outils de dessin"><button id="workshopDraw" class="active" type="button">⌁ Polyligne</button><button id="workshopPan" type="button">✋ Main</button><button id="workshopClose" type="button">Fermer le contour</button><button id="workshopUndoPoint" type="button">Annuler le point</button></div>
+        <div class="workshop-tools"><button id="workshopDeleteZone" type="button">Supprimer le dernier contour</button><button id="workshopClear" type="button">Tout effacer</button></div>
+        <div class="workshop-actions"><button id="workshopExportDxf" class="button primary" type="button">Exporter le DXF avec calques</button><button id="workshopExportJson" class="button secondary" type="button">Sauvegarder le brouillon</button></div>
+        <p id="workshopStatus" class="access-hint" role="status">Importez un fichier DXF pour commencer.</p>
+        <div id="workshopZoneList" class="workshop-zone-list"></div>
+      </aside>
+      <section class="dxf-workshop-canvas">
+        <div class="workshop-canvas-heading"><div><span class="eyebrow">Plan de travail</span><h2 id="workshopPlanTitle">Aucun plan importé</h2></div><span id="workshopPlanSummary"></span></div>
+        <div id="workshopViewport" class="workshop-viewport"><svg id="workshopSvg" aria-label="Plan DXF à délimiter"></svg><div id="workshopEmpty" class="plan-empty">Importez un DXF. Le fichier peut contenir plusieurs niveaux.</div></div>
+      </section>
     </main>
 <section id="adminTeam" class="admin-page" hidden>
   <div class="page-heading"><h2>Équipe et affectations</h2><p>Une personne peut intervenir sur plusieurs blocs, à des étages différents.</p></div>

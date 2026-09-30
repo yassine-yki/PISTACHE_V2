@@ -9,6 +9,7 @@ import { cloudConfigured, login, logout, restoreWorkspace, acceptInvitation } fr
 import { editable } from "./cloud/types.js";
 import { openProjectPhotos, openTaskPhotos } from "./task-photos.js";
 import { openBoh } from "./boh.js";
+import { openDxfWorkshop } from "./dxf-workshop.js";
 
 
 
@@ -1096,10 +1097,11 @@ elements.projectDialog.addEventListener("cancel", (event) => {
 
 function renderAccessShell() {
   const admin = currentUser?.role === "admin";
-  const roomsMode=trackingMode==="rooms",bohMode=trackingMode==="boh";
+  const roomsMode=trackingMode==="rooms",bohMode=trackingMode==="boh",workshopMode=trackingMode==="workshop";
   document.body.dataset.role = localMode ? "viewer" : !accessReady ? "signed-out" : currentUser?.role || "signed-out";
   document.querySelector("#mainWorkspace").hidden = !accessReady || !roomsMode || (!localMode && admin && adminPage !== "dashboard");
   document.querySelector("#bohWorkspace").hidden = !accessReady || !bohMode;
+  document.querySelector("#dxfWorkshop").hidden = !accessReady || !workshopMode || !admin || localMode;
   document.querySelector("#adminNavigation").hidden = !accessReady || !roomsMode || !admin || localMode;
   document.querySelector("#adminTeam").hidden = !roomsMode || !admin || adminPage !== "team" || localMode;
   document.querySelector("#adminTasks").hidden = !roomsMode || !admin || adminPage !== "tasks" || localMode;
@@ -1110,6 +1112,7 @@ function renderAccessShell() {
   document.querySelector("#modeSwitchButton").hidden = !accessReady;
   document.querySelector("#syncButton").hidden = !cloud || !roomsMode;
   document.querySelector("#draftActions").hidden=!accessReady || !roomsMode || localMode || currentUser?.role==="viewer";
+  document.querySelectorAll("[data-admin-only]").forEach(element=>element.hidden=!admin || localMode);
   document.querySelector("#sessionRole").textContent = localMode ? "Visiteur — lecture seule" : admin ? "Administrateur" : currentUser?.role === "viewer" ? "Lecture seule" : "Intervenant";
   document.querySelectorAll("[data-admin-page]").forEach(b=>b.classList.toggle("active",b.dataset.adminPage===adminPage));
   if(!roomAccessible(state.selectedRoom)) { elements.roomTitle.textContent="En attente d'affectation"; elements.roomType.textContent=""; }
@@ -1815,16 +1818,20 @@ for (const [id, readOnly] of [["addTaskPhoto", false], ["viewTaskPhotos", true]]
 }
 
 async function activateTrackingMode(mode) {
+  if(mode==="workshop"&&(localMode||currentUser?.role!=="admin"))return;
   trackingMode=mode;adminPage="dashboard";
   document.querySelector("#trackingModeDialog").close();
   renderAccessShell();
   if(mode==="rooms") {
     elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
     await loadConfiguredPlan(activeProjectDefinition);requestAnimationFrame(fitPlan);
-  } else {
+  } else if(mode==="boh") {
     elements.projectSubtitle.textContent=activeProjectDefinition.name+" — BOH Carrelage";
     showAppLoading("Chargement du suivi BOH…");
     try{await openBoh(cloud?.snapshot || null,currentUser?.role || "viewer");}finally{hideAppLoading();}
+  } else if(mode==="workshop") {
+    elements.projectSubtitle.textContent=activeProjectDefinition.name+" — Préparation AutoCAD";
+    openDxfWorkshop(cloud?.snapshot?.projectId || activeProjectDefinition.id,true);
   }
 }
 document.querySelector("#trackingModeDialog").addEventListener("cancel",event=>event.preventDefault());
