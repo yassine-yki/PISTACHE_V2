@@ -141,3 +141,15 @@ test("cancel removes only private drafts and preserves confirmed pending submiss
   assert.equal((await engine.records("p"))["201:bedroom:paint"].progress,20);
   await store.close();
 });
+
+test("one draft can be removed without touching the other local changes",async()=>{
+  const store=new OfflineStore(crypto.randomUUID());const s=snapshot();s.role="admin";await store.saveSnapshot(s);
+  const engine=new SyncEngine(store,"alice","device",async()=>{throw Error("unused");});
+  const first=await engine.enqueue("p","201:bedroom:paint",record(35),null,undefined,undefined,true);
+  const second=await engine.enqueue("p","201:bathroom:paint",record(60),null,undefined,undefined,true);
+  assert.equal(await engine.discardDraft("p",first.id),true);
+  assert.deepEqual((await engine.operations("p")).map(item=>item.id),[second.id]);
+  assert.equal((await engine.records("p"))["201:bedroom:paint"].progress,0);
+  assert.equal((await engine.records("p"))["201:bathroom:paint"].progress,60);
+  await store.close();
+});

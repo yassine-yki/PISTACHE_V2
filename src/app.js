@@ -1208,9 +1208,9 @@ function operationChanges(operation,operations) {
   if((before.endDate||"")!==after.endDate)changes.push(`Fin : ${after.endDate||"retirée"}`);
   return changes.length?changes:["Aucune différence avec la valeur actuellement connue"];
 }
-function operationReviewCard(operation,operations,{problem=false}={}) {
+function operationReviewCard(operation,operations,{problem=false,draft=false}={}) {
   const context=operationContext(operation),created=new Intl.DateTimeFormat("fr-FR",{dateStyle:"short",timeStyle:"short"}).format(new Date(operation.createdAt));
-  return '<article class="activity-item sync-review-item"><header><strong>Chambre '+escapeSvgText(context.room)+'</strong><span>'+escapeSvgText([context.floor,context.zoneLabel].filter(Boolean).join(" · "))+'</span></header><dl><div><dt>Tâche</dt><dd>'+escapeSvgText(context.group)+'</dd></div><div><dt>Sous-tâche</dt><dd>'+escapeSvgText(context.label)+'</dd></div></dl><div class="activity-changes"><b>Modification</b>'+operationChanges(operation,operations).map(change=>'<span>'+escapeSvgText(change)+'</span>').join("")+'</div><footer><time>'+escapeSvgText(created)+'</time></footer>'+(problem?'<p class="sync-error">'+escapeSvgText(syncError(operation.error))+'</p><button type="button" class="button secondary" data-discard-task="'+escapeSvgText(operation.taskId)+'">Conserver la valeur du serveur</button>':"")+'</article>';
+  return '<article class="activity-item sync-review-item"><header><strong>Chambre '+escapeSvgText(context.room)+'</strong><span>'+escapeSvgText([context.floor,context.zoneLabel].filter(Boolean).join(" · "))+'</span></header><dl><div><dt>Tâche</dt><dd>'+escapeSvgText(context.group)+'</dd></div><div><dt>Sous-tâche</dt><dd>'+escapeSvgText(context.label)+'</dd></div></dl><div class="activity-changes"><b>Modification</b>'+operationChanges(operation,operations).map(change=>'<span>'+escapeSvgText(change)+'</span>').join("")+'</div><footer><time>'+escapeSvgText(created)+'</time></footer>'+(draft?'<button type="button" class="button secondary draft-delete" data-discard-draft="'+escapeSvgText(operation.id)+'">Supprimer ce brouillon</button>':"")+(problem?'<p class="sync-error">'+escapeSvgText(syncError(operation.error))+'</p><button type="button" class="button secondary" data-discard-task="'+escapeSvgText(operation.taskId)+'">Conserver la valeur du serveur</button>':"")+'</article>';
 }
 async function renderSync() {
   if(!cloud?.snapshot) return;
@@ -1224,7 +1224,7 @@ async function renderSync() {
     : navigator.onLine ? "Synchronisé" : "Hors connexion — copie locale";
   const pendingOperations=operations.filter(o=>o.state==="pending");
   const section=(title,items,options={})=>items.length?'<section class="sync-review-section"><h3>'+title+' <span>'+items.length+'</span></h3>'+items.map(item=>operationReviewCard(item,operations,options)).join("")+'</section>':"";
-  document.querySelector("#syncProblems").innerHTML=section("Brouillons non partagés",operations.filter(o=>o.state==="draft"))
+  document.querySelector("#syncProblems").innerHTML=section("Brouillons non partagés",operations.filter(o=>o.state==="draft"),{draft:true})
     +section("Validées, en attente d’envoi",pendingOperations)
     +section("Modifications à examiner",problems,{problem:true})
     +(operations.length?'':'<p class="empty-state">Aucune modification en attente sur cet appareil.</p>')
@@ -1620,6 +1620,14 @@ document.querySelector("#syncButton").onclick=()=>{document.querySelector("#sync
 document.querySelector("#closeSync").onclick=()=>document.querySelector("#syncDialog").close();
 document.querySelector("#retrySync").onclick=()=>void syncCloud({refresh:true,closeDialog:true,refreshActivity:true,retryInvalid:true});
 document.querySelector("#syncProblems").onclick=async(event)=>{
+  const draftButton=event.target.closest("[data-discard-draft]");
+  if(draftButton){
+    if(!confirm("Supprimer uniquement ce brouillon ? La dernière valeur validée sera restaurée pour cette tâche."))return;
+    draftButton.disabled=true;
+    await cloud.exclusive(()=>cloud.engine.discardDraft(cloud.snapshot.projectId,draftButton.dataset.discardDraft));
+    project=await cloud.project();state.records=currentFloorRecords();render();await renderSync();
+    return;
+  }
   const button=event.target.closest("[data-discard-task]");if(!button)return;
   if(!confirm("Conserver la valeur du serveur pour cette tâche ? Votre proposition restera archivée localement."))return;
   await cloud.exclusive(()=>cloud.engine.discard(cloud.snapshot.projectId,button.dataset.discardTask));

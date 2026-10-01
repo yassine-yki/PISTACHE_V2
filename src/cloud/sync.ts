@@ -55,6 +55,12 @@ export class SyncEngine {
     const drafts=(await this.operations(projectId)).filter(o=>o.state==="draft");
     await this.store.putMany(drafts.map(o=>({...o,state:"discarded" as const})));
   }
+  async discardDraft(projectId: string, operationId: string) {
+    const draft=(await this.operations(projectId)).find(o=>o.id===operationId&&o.state==="draft");
+    if(!draft)return false;
+    await this.store.put({...draft,state:"discarded" as const});
+    return true;
+  }
   async confirmDrafts(projectId: string) {
     const drafts=(await this.operations(projectId)).filter(o=>o.state==="draft");
     await this.store.putMany(drafts.map(o=>({...o,state:"pending" as const})));

@@ -88,6 +88,7 @@ body { --green: #426b39; --green-dark: #31512c; --surface-soft: #f3f5ef; }
 .sync-review-section > h3 span { display:grid; place-items:center; min-width:24px; height:24px; border-radius:999px; background:var(--surface-soft); color:var(--muted); font-size:11px; }
 .sync-review-item { gap:5px; padding:10px 12px; }
 .sync-review-item .sync-error { margin:2px 0; color:#9a2d26; font-size:12px; font-weight:650; }
+.sync-review-item .draft-delete { justify-self:start; min-height:34px; border-color:#d8b7b3; color:#982d26; background:#fff; }
 .sync-review-help { margin:10px 0; padding:9px 10px; border-radius:8px; background:var(--surface-soft); color:var(--muted); font-size:12px; }
 body[data-role="signed-out"] .topbar { opacity: .3; }
 .app-loading { position:fixed; z-index:25; inset:50% auto auto 50%; transform:translate(-50%,-50%); width:min(360px,calc(100vw - 40px)); display:grid; justify-items:center; gap:10px; padding:24px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.96); box-shadow:0 18px 55px rgba(24,42,25,.14); color:var(--ink); text-align:center; }
