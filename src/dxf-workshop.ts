@@ -125,8 +125,15 @@ function closeContour(){
   if(!layer){message("Choisissez d’abord un élément de légende.",true);return;}
   zones.push({id:crypto.randomUUID(),level,layer,points:[...activePoints],...layerColors[layer]});activePoints=[];persist();render();message(`Contour ajouté au calque « ${layer} » (${level}).`);
 }
-function sanitizeLayerName(value:string){return value.normalize("NFC").replace(/(\d)\s*[*×]\s*(\d)/g,"$1x$2").replace(/[<>\\/:;?*|="]/g,"-").replace(/\s+/g," ").trim().slice(0,255)||"ZONE";}
-function layerRecord(name:string,handle:string,owner:string,colorIndex=3,trueColor?:number){return `0\nLAYER\n5\n${handle}\n330\n${owner}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${name}\n70\n0\n62\n${Math.max(1,Math.min(255,colorIndex))}\n${Number.isFinite(trueColor)?`420\n${trueColor}\n`:""}6\nCONTINUOUS\n`;}
+function shortLayerName(value:string,maxBytes=120){
+  const encoder=new TextEncoder();if(encoder.encode(value).length<=maxBytes)return value;
+  let hash=2166136261;for(const character of value){hash^=character.codePointAt(0)||0;hash=Math.imul(hash,16777619);}
+  const suffix=`-${(hash>>>0).toString(16).toUpperCase().padStart(8,"0")}`,limit=maxBytes-encoder.encode(suffix).length;let prefix="";
+  for(const character of value){if(encoder.encode(prefix+character).length>limit)break;prefix+=character;}
+  return `${prefix.trimEnd()}${suffix}`;
+}
+function sanitizeLayerName(value:string){const clean=value.normalize("NFC").replace(/(\d)\s*[*×]\s*(\d)/g,"$1x$2").replace(/[<>\\/:;?*|="]/g,"-").replace(/\s+/g," ").trim()||"ZONE";return shortLayerName(clean);}
+function layerRecord(name:string,handle:string,owner:string,colorIndex=3,trueColor?:number){return `0\nLAYER\n5\n${handle}\n330\n${owner}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${name}\n70\n0\n62\n${Math.max(1,Math.min(255,colorIndex))}\n${Number.isFinite(trueColor)?`420\n${trueColor}\n`:""}6\nContinuous\n370\n-3\n`;}
 function polylineRecord(zone:Zone,handle:string,owner:string){const name=sanitizeLayerName(zone.layer);return `0\nLWPOLYLINE\n5\n${handle}\n330\n${owner}\n100\nAcDbEntity\n8\n${name}\n100\nAcDbPolyline\n90\n${zone.points.length}\n70\n1\n43\n0.0\n${zone.points.map(point=>`10\n${numberValue(point.x)}\n20\n${numberValue(point.y)}\n`).join("")}`;}
 function normalizeAsciiDxf(original:string){
   const normalized=original.replace(/^\uFEFF/,"").replace(/\r\n?/g,"\n").replace(/^(?:[ \t]*\n)+/,""),lines=normalized.split("\n");

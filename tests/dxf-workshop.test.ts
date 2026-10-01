@@ -43,6 +43,9 @@ test("sanitizes characters forbidden in AutoCAD layer names", () => {
   assert.equal(sanitizeLayerName("  Couloir / BOH:*  "), "Couloir - BOH--");
   assert.equal(sanitizeLayerName("Carreaux 30*30"), "Carreaux 30x30");
   assert.equal(sanitizeLayerName(""), "ZONE");
+  const longName=sanitizeLayerName("ESCALIERS ÉVACUATION — "+"revêtement antidérapant ".repeat(20));
+  assert.ok(new TextEncoder().encode(longName).length<=120);
+  assert.match(longName,/^ESCALIERS ÉVACUATION/);
 });
 
 test("automatically detects named closed spaces and their nearest levels", () => {
