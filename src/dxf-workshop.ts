@@ -136,26 +136,24 @@ function sanitizeLayerName(value:string){const clean=value.normalize("NFC").repl
 function layerRecord(name:string,handle:string,owner:string,colorIndex=3,trueColor?:number){return `0\nLAYER\n5\n${handle}\n330\n${owner}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${name}\n70\n0\n62\n${Math.max(1,Math.min(255,colorIndex))}\n${Number.isFinite(trueColor)?`420\n${trueColor}\n`:""}6\nContinuous\n370\n-3\n`;}
 function polylineRecord(zone:Zone,handle:string,owner:string){const name=sanitizeLayerName(zone.layer);return `0\nLWPOLYLINE\n5\n${handle}\n330\n${owner}\n100\nAcDbEntity\n8\n${name}\n100\nAcDbPolyline\n90\n${zone.points.length}\n70\n1\n43\n0.0\n${zone.points.map(point=>`10\n${numberValue(point.x)}\n20\n${numberValue(point.y)}\n`).join("")}`;}
 function normalizeAsciiDxf(original:string){
-  const normalized=original.replace(/^\uFEFF/,"").replace(/\r\n?/g,"\n").replace(/^(?:[ \t]*\n)+/,""),lines=normalized.split("\n");
-  for(let index=0;index<lines.length;index+=2)lines[index]=lines[index].trim();
-  return lines.join("\n");
+  return original.replace(/^\uFEFF/,"").replace(/\r\n?/g,"\n").replace(/^(?:[ \t]*\n)+/,"");
 }
 function dxfPairs(value:string){const lines=value.split("\n"),pairs:Array<{code:string;value:string}>=[];for(let index=0;index<lines.length-1;index+=2)pairs.push({code:lines[index].trim(),value:lines[index+1].trim()});return pairs;}
 export function appendWorkshopLayers(original:string,inputZones:Zone[],inputLayers:Array<{name:string;colorIndex?:number;trueColor?:number}>=[]){
   let result=normalizeAsciiDxf(original);const definitions=new Map<string,LayerColor>();for(const layer of inputLayers)definitions.set(sanitizeLayerName(layer.name),{colorIndex:layer.colorIndex||3,trueColor:layer.trueColor});for(const zone of inputZones){const name=sanitizeLayerName(zone.layer),existing=definitions.get(name);definitions.set(name,{colorIndex:zone.colorIndex||existing?.colorIndex||3,trueColor:zone.trueColor??existing?.trueColor});}
-  const layerTable=/(^|\n)(0\n[ \t]*TABLE[ \t]*\n2\n[ \t]*LAYER[ \t]*\n[\s\S]*?)(\n0\n[ \t]*ENDTAB[ \t]*(?:\n|$))/i;
+  const layerTable=/(^|\n)([ \t]*0\n[ \t]*TABLE[ \t]*\n[ \t]*2\n[ \t]*LAYER[ \t]*\n[\s\S]*?)(\n[ \t]*0\n[ \t]*ENDTAB[ \t]*(?:\n|$))/i;
   const tableMatch=layerTable.exec(result);if(!tableMatch)throw new Error("La table des calques du DXF est introuvable.");
   const tableBody=tableMatch[2],tablePairs=dxfPairs(tableBody),existingLayers=new Set<string>();let readingLayer=false;for(const pair of tablePairs){if(pair.code==="0")readingLayer=pair.value.toUpperCase()==="LAYER";else if(readingLayer&&pair.code==="2"){existingLayers.add(pair.value.toLocaleUpperCase("fr"));readingLayer=false;}}
   for(const name of [...definitions.keys()])if(existingLayers.has(name.toLocaleUpperCase("fr")))definitions.delete(name);
   let nextHandle=dxfPairs(result).filter(pair=>pair.code==="5"&&/^[0-9A-F]+$/i.test(pair.value)).reduce((maximum,pair)=>{const value=BigInt(`0x${pair.value}`);return value>maximum?value:maximum;},0n)+1n;
   const handle=()=>{const value=nextHandle.toString(16).toUpperCase();nextHandle++;return value;};
   const tableOwner=tablePairs.find(pair=>pair.code==="5")?.value||"0",layerEntries=[...definitions].map(([name,definition])=>layerRecord(name,handle(),tableOwner,definition.colorIndex,definition.trueColor)).join("");
-  result=result.replace(layerTable,(_all,prefix,body,end)=>{const count=existingLayers.size+definitions.size;let updated=body.replace(/(100\nAcDbSymbolTable\n70\n)[^\n]+/i,(_match:string,head:string)=>`${head}${count}`);if(updated===body)updated=body.replace(/(0\nTABLE\n2\nLAYER\n(?:5\n[^\n]+\n)?70\n)[^\n]+/i,(_match:string,head:string)=>`${head}${count}`);return `${prefix}${updated}\n${layerEntries.trimEnd()}${end}`;});
-  const marker=/(^|\n)0\n[ \t]*SECTION[ \t]*\n2\n[ \t]*ENTITIES[ \t]*(?:\n|$)/i.exec(result);if(!marker)throw new Error("La section ENTITIES du DXF est introuvable. Vérifiez qu’il s’agit bien d’un DXF ASCII et non d’un DWG renommé.");
-  const offset=marker.index+marker[0].length,remainder=result.slice(offset),endMarker=/(^|\n)0\n[ \t]*ENDSEC[ \t]*(?:\n|$)/i.exec(remainder);if(!endMarker)throw new Error("La fin de la section ENTITIES est introuvable.");
+  result=result.replace(layerTable,(_all,prefix,body,end)=>{const count=existingLayers.size+definitions.size;let updated=body.replace(/([ \t]*100\nAcDbSymbolTable\n[ \t]*70\n)[^\n]+/i,(_match:string,head:string)=>`${head}${count}`);if(updated===body)updated=body.replace(/([ \t]*0\n[ \t]*TABLE\n[ \t]*2\nLAYER\n(?:[ \t]*5\n[^\n]+\n)?[ \t]*70\n)[^\n]+/i,(_match:string,head:string)=>`${head}${count}`);return `${prefix}${updated}\n${layerEntries.trimEnd()}${end}`;});
+  const marker=/(^|\n)[ \t]*0\n[ \t]*SECTION[ \t]*\n[ \t]*2\n[ \t]*ENTITIES[ \t]*(?:\n|$)/i.exec(result);if(!marker)throw new Error("La section ENTITIES du DXF est introuvable. Vérifiez qu’il s’agit bien d’un DXF ASCII et non d’un DWG renommé.");
+  const offset=marker.index+marker[0].length,remainder=result.slice(offset),endMarker=/(^|\n)[ \t]*0\n[ \t]*ENDSEC[ \t]*(?:\n|$)/i.exec(remainder);if(!endMarker)throw new Error("La fin de la section ENTITIES est introuvable.");
   const entitySection=remainder.slice(0,endMarker.index),owners=dxfPairs(entitySection).filter(pair=>pair.code==="330"&&/^[0-9A-F]+$/i.test(pair.value)).map(pair=>pair.value),ownerCounts=new Map<string,number>();for(const owner of owners)ownerCounts.set(owner,(ownerCounts.get(owner)||0)+1);const entityOwner=[...ownerCounts].sort((a,b)=>b[1]-a[1])[0]?.[0]||"0";
   const end=offset+endMarker.index+(endMarker[0].startsWith("\n")?1:0),records=inputZones.map(zone=>polylineRecord(zone,handle(),entityOwner)).join("");
-  result=result.slice(0,end)+records+result.slice(end);result=result.replace(/(9\n\$HANDSEED\n5\n)[0-9A-F]+/i,`$1${nextHandle.toString(16).toUpperCase()}`);return result.replace(/\n/g,"\r\n");
+  result=result.slice(0,end)+records+result.slice(end);result=result.replace(/([ \t]*9\n\$HANDSEED\n[ \t]*5\n)[ \t]*[0-9A-F]+/i,`$1${nextHandle.toString(16).toUpperCase()}`);return result.replace(/\n/g,"\r\n");
 }
 function download(content:string,type:string,name:string){const link=document.createElement("a");link.href=URL.createObjectURL(new Blob([content],{type}));link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
 function detectMetadata(){

@@ -37,6 +37,7 @@ test("exports DXF files whose group codes are padded and use old Mac line ending
   const exported=appendWorkshopLayers(padded,[{id:"zone-2",level:"RDC",layer:"Piscine",points:[{x:0,y:0},{x:4,y:0},{x:4,y:3},{x:0,y:3}]}]);
   const parsed=new DxfParser().parseSync(exported);
   assert.equal(parsed?.entities.find(entity=>entity.type==="LWPOLYLINE")?.layer,"Piscine");
+  assert.match(exported,/  0\r\nSECTION/);
 });
 
 test("sanitizes characters forbidden in AutoCAD layer names", () => {
