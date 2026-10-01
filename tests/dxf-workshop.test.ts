@@ -27,7 +27,9 @@ test("creates an AutoCAD layer and a closed polyline for a delimited space", () 
   assert.equal(contour?.layer, "Carrelage 60-60");
   assert.equal(contour?.shape, true);
   assert.equal(contour?.vertices?.length, 4);
-  assert.match(exported, /0\r\nLAYER\r\n2\r\nCarrelage 60-60/);
+  assert.match(exported, /0\r\nLAYER\r\n5\r\n[0-9A-F]+\r\n330\r\n[0-9A-F]+\r\n100\r\nAcDbSymbolTableRecord\r\n100\r\nAcDbLayerTableRecord\r\n2\r\nCarrelage 60-60/);
+  assert.match(exported, /0\r\nLWPOLYLINE\r\n5\r\n[0-9A-F]+\r\n330\r\n[0-9A-F]+\r\n100\r\nAcDbEntity\r\n8\r\nCarrelage 60-60\r\n100\r\nAcDbPolyline/);
+  assert.match(exported, /0\r\nTABLE\r\n2\r\nLAYER\r\n70\r\n2\r\n/);
 });
 
 test("exports DXF files whose group codes are padded and use old Mac line endings", () => {
