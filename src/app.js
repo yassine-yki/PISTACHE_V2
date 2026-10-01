@@ -10,6 +10,7 @@ import { editable } from "./cloud/types.js";
 import { openProjectPhotos, openTaskPhotos } from "./task-photos.js";
 import { openBoh } from "./boh.js";
 import { openDxfWorkshop } from "./dxf-workshop.js";
+import { findPinnedTask } from "./task-pin.js";
 
 
 
@@ -64,6 +65,7 @@ const state = {
   selectedFloor: CURRENT_FLOOR,
   selectedZone: "bedroom",
   selectedTask: "",
+  pinnedTask: null,
   selectedType: "all",
   selectedBlock: "all",
   taskQuery: "",
@@ -389,13 +391,13 @@ function renderDxfZones() {
   }
   labelLayer.innerHTML = "";
   layer.innerHTML = model.rooms.map((room) => {
-    const task = state.selectedTask || currentTasks()[0]?.id;
-    const record = task ? getRecord(room.number, state.selectedZone, task) : { progress: 0, blocked: false };
+    const task = state.selectedTask;
+    const record = task ? getRecord(room.number, state.selectedZone, task) : null;
     const activeClass = room.number === state.selectedRoom ? " selected" : "";
     let paths = [];
     if (state.selectedZone === "bathroom") paths = room.bathrooms.map((polygon) => pointsPath(polygon, true));
     if (state.selectedZone === "bedroom" && room.polygon) paths = [`${pointsPath(room.polygon, true)} ${[...room.bathrooms, ...room.loggias].map((polygon) => pointsPath(polygon, true)).join(" ")}`];
-    const zoneClass = roomMatchesFilters(room.number) ? statusClass(record) : "filtered-out";
+    const zoneClass = roomMatchesFilters(room.number) ? (record ? statusClass(record) : "unassigned") : "filtered-out";
     return paths.map((path) => `<path class="dxf-zone ${zoneClass}${activeClass}" data-room="${room.number}" d="${path}" fill-rule="evenodd"><title>Chambre ${room.number}</title></path>`).join("");
   }).join("");
 }
@@ -493,13 +495,24 @@ function roomMatchesFilters(number) {
   return roomAccessible(number) && roomMatchesType(number) && roomMatchesBlock(number);
 }
 
-function currentTasks() {
-  const base=tasksByZone[state.selectedZone];
+function currentTasks(zone=state.selectedZone) {
+  const base=tasksByZone[zone];
   if(localMode || !cloud?.snapshot?.taskTypes) return base;
   return base.flatMap(task=>{
-    const type=cloud.snapshot.taskTypes.find(t=>t.zone===state.selectedZone && t.code===task.id);
+    const type=cloud.snapshot.taskTypes.find(t=>t.zone===zone && t.code===task.id);
     return type ? [{...task,label:type.label}] : [];
   });
+}
+
+function taskCandidate(zone,task) { return {id:task.id,label:task.label,group:taskGroup(zone,task.sourceColumn)}; }
+function selectedTaskCandidate() {
+  const task=currentTasks().find(item=>item.id===state.selectedTask);
+  return task?taskCandidate(state.selectedZone,task):null;
+}
+function selectTask(taskId) {
+  resetCorrectionState();state.selectedTask=taskId;
+  if(state.pinnedTask&&taskId)state.pinnedTask=selectedTaskCandidate();
+  render();
 }
 
 function taskTypeOrder(type) {
@@ -561,6 +574,14 @@ function renderTaskSelect() {
     : '<option value="">Tâches à définir</option>';
   elements.taskSelect.disabled = !tasks.length;
   elements.taskSelect.value = state.selectedTask;
+}
+
+function renderTaskPin() {
+  const selected=selectedTaskCandidate(),button=document.querySelector("#taskPinButton"),label=document.querySelector("#taskPinLabel");
+  button.disabled=!selected&&!state.pinnedTask;
+  button.setAttribute("aria-pressed",String(Boolean(state.pinnedTask)));
+  button.textContent=state.pinnedTask?"Tâche fixée":"Garder fixe";
+  label.textContent=selected?`${selected.group} — ${selected.label}`:state.pinnedTask?`${state.pinnedTask.group} — indisponible dans cette zone`:"Aucune tâche sélectionnée";
 }
 
 function filteredRooms() {
@@ -690,6 +711,7 @@ function render() {
   renderRoomSelect();
   renderZoneTabs();
   renderTaskSelect();
+  renderTaskPin();
   renderSummary();
   renderRoomHeading();
   renderTaskList();
@@ -719,7 +741,7 @@ function selectRoom(number, center = false) {
   if (!roomAccessible(number)) return;
   resetCorrectionState();
   state.selectedRoom = number;
-  state.selectedTask = "";
+  if(!state.pinnedTask)state.selectedTask = "";
   if (!roomMatchesType(number)) state.selectedType = "all";
   render();
   if (center) centerOnRoom(number);
@@ -727,9 +749,10 @@ function selectRoom(number, center = false) {
 }
 
 function setZone(zone) {
+  const pinned=state.pinnedTask || selectedTaskCandidate();
   resetCorrectionState();
   state.selectedZone = zone;
-  state.selectedTask = "";
+  state.selectedTask = state.pinnedTask&&pinned ? findPinnedTask(pinned,currentTasks(zone).map(task=>taskCandidate(zone,task)))?.id || "" : "";
   state.taskQuery = "";
   render();
 }
@@ -741,7 +764,7 @@ function setType(type) {
   const changedRoom = !roomMatchesFilters(state.selectedRoom);
   if (changedRoom) {
     state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
-    state.selectedTask = "";
+    if(!state.pinnedTask)state.selectedTask = "";
   }
   render();
 }
@@ -753,7 +776,7 @@ function setBlock(block) {
   const changedRoom = !roomMatchesFilters(state.selectedRoom);
   if (changedRoom) {
     state.selectedRoom = rooms.find((room) => roomMatchesFilters(room.number))?.number ?? null;
-    state.selectedTask = "";
+    if(!state.pinnedTask)state.selectedTask = "";
   }
   render();
 }
@@ -798,7 +821,7 @@ document.addEventListener("click", (event) => {
   const roomShape = event.target.closest("[data-room]");
   if (roomShape) selectRoom(Number(roomShape.dataset.room));
   const taskButton = event.target.closest("[data-task]");
-  if (taskButton) { resetCorrectionState(); state.selectedTask = taskButton.dataset.task; render(); }
+  if (taskButton) selectTask(taskButton.dataset.task);
   const quickButton = event.target.closest("[data-progress]");
   if (quickButton) updateProgress(quickButton.dataset.progress);
 });
@@ -811,7 +834,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-elements.taskSelect.addEventListener("change", (event) => { resetCorrectionState(); state.selectedTask = event.target.value; render(); });
+elements.taskSelect.addEventListener("change", (event) => selectTask(event.target.value));
+document.querySelector("#taskPinButton").addEventListener("click",()=>{
+  const selected=selectedTaskCandidate();
+  if(state.pinnedTask)state.pinnedTask=null;
+  else if(selected)state.pinnedTask=selected;
+  renderTaskPin();
+});
 elements.taskSearch.addEventListener("input", (event) => {
   state.taskQuery = event.target.value;
   renderTaskList();
@@ -965,7 +994,7 @@ async function loadDxfSource(source, name, size, version = ++planLoadVersion) {
     loggiaRooms.clear();
     model.loggias.filter((loggia) => loggia.number !== null).forEach((loggia) => loggiaRooms.add(loggia.number));
     state.selectedRoom = rooms[0].number;
-    state.selectedTask = "";
+    if(!state.pinnedTask)state.selectedTask = "";
     state.selectedType = "all";
     renderDxfBase();
     render();
@@ -995,7 +1024,7 @@ function clearPlan(message) {
   state.selectedBlock = "all";
   state.selectedType = "all";
   state.selectedZone = "bedroom";
-  state.selectedTask = "";
+  if(!state.pinnedTask)state.selectedTask = "";
   elements.dxfPlan.innerHTML = "";
   elements.planEmpty.hidden = false;
   elements.planEmpty.textContent = message;
@@ -1069,7 +1098,7 @@ async function changeFloor(floorId) {
   state.records=currentFloorRecords();
   state.selectedBlock="all";
   state.selectedType="all";
-  state.selectedTask="";
+  if(!state.pinnedTask)state.selectedTask="";
   elements.projectSubtitle.textContent=activeProjectDefinition.name+" — "+(floorDefinition()?.label || state.selectedFloor);
   await loadConfiguredPlan(activeProjectDefinition);
   state.selectedRoom=rooms.find(r=>roomAccessible(r.number))?.number ?? null;
@@ -1159,10 +1188,29 @@ async function beginCloud(workspace) {
   showAppLoading("Récupération de votre chantier…");
   await chooseProject();
 }
-function operationLabel(operation) {
-  const [room,zone,code]=operation.key.split(":");
-  const task=tasksByZone[zone]?.find(t=>t.id===code);
-  return "Chambre "+room+" — "+(task?.label || code);
+function operationContext(operation) {
+  const [room,zone,code]=operation.key.split(":"),task=cloud.snapshot.tasks.find(item=>item.id===operation.taskId)||cloud.snapshot.tasks.find(item=>item.key===operation.key);
+  const definition=tasksByZone[zone]?.find(item=>item.id===code),type=cloud.snapshot.taskTypes?.find(item=>item.zone===zone&&item.code===code);
+  const floor=activeProjectDefinition?.floors?.find(item=>item.id===task?.floorCode)?.label || task?.floorCode?.toUpperCase() || "";
+  return {room,zone,code,task,floor,zoneLabel:zone==="bathroom"?"Salle de bain":zone==="bedroom"?"Chambre":"Loggia",group:type?.group_label || (definition?taskGroup(zone,definition.sourceColumn):"Tâche"),label:type?.label || definition?.label || code};
+}
+function payloadRecord(payload) { return {progress:Number(payload.progress)||0,blocked:Boolean(payload.blocked),note:payload.note||"",startDate:payload.start_date||"",endDate:payload.end_date||""}; }
+function operationBefore(operation,operations) {
+  const context=operationContext(operation),previous=operations.filter(item=>item.taskId===operation.taskId&&item.id!==operation.id&&item.baseVersion<operation.baseVersion&&["pending","draft"].includes(item.state)).sort((a,b)=>b.baseVersion-a.baseVersion)[0];
+  return previous?payloadRecord(previous.payload):(context.task?.record || {progress:0,blocked:false,note:"",startDate:"",endDate:""});
+}
+function operationChanges(operation,operations) {
+  const before=operationBefore(operation,operations),after=payloadRecord(operation.payload),changes=[];
+  if(Number(before.progress||0)!==after.progress)changes.push(`Avancement : ${Number(before.progress||0)} % → ${after.progress} %`);
+  if(Boolean(before.blocked)!==after.blocked)changes.push(after.blocked?"Tâche signalée bloquée":"Blocage retiré");
+  if((before.note||"")!==after.note)changes.push(after.note?`Observation : ${after.note}`:"Observation supprimée");
+  if((before.startDate||"")!==after.startDate)changes.push(`Début : ${after.startDate||"retiré"}`);
+  if((before.endDate||"")!==after.endDate)changes.push(`Fin : ${after.endDate||"retirée"}`);
+  return changes.length?changes:["Aucune différence avec la valeur actuellement connue"];
+}
+function operationReviewCard(operation,operations,{problem=false}={}) {
+  const context=operationContext(operation),created=new Intl.DateTimeFormat("fr-FR",{dateStyle:"short",timeStyle:"short"}).format(new Date(operation.createdAt));
+  return '<article class="activity-item sync-review-item"><header><strong>Chambre '+escapeSvgText(context.room)+'</strong><span>'+escapeSvgText([context.floor,context.zoneLabel].filter(Boolean).join(" · "))+'</span></header><dl><div><dt>Tâche</dt><dd>'+escapeSvgText(context.group)+'</dd></div><div><dt>Sous-tâche</dt><dd>'+escapeSvgText(context.label)+'</dd></div></dl><div class="activity-changes"><b>Modification</b>'+operationChanges(operation,operations).map(change=>'<span>'+escapeSvgText(change)+'</span>').join("")+'</div><footer><time>'+escapeSvgText(created)+'</time></footer>'+(problem?'<p class="sync-error">'+escapeSvgText(syncError(operation.error))+'</p><button type="button" class="button secondary" data-discard-task="'+escapeSvgText(operation.taskId)+'">Conserver la valeur du serveur</button>':"")+'</article>';
 }
 async function renderSync() {
   if(!cloud?.snapshot) return;
@@ -1174,7 +1222,13 @@ async function renderSync() {
     : drafts ? drafts+" brouillon(s) sur cet appareil — non partagés"
     : pending ? pending+" modification(s) en attente de synchronisation"
     : navigator.onLine ? "Synchronisé" : "Hors connexion — copie locale";
-  document.querySelector("#syncProblems").innerHTML=problems.map(o=>'<article class="activity-item"><strong>'+escapeSvgText(operationLabel(o))+'</strong><p>Votre saisie : '+o.payload.progress+' % — '+escapeSvgText(syncError(o.error))+'</p><p>'+escapeSvgText(o.payload.note)+'</p><button type="button" class="button secondary" data-discard-task="'+o.taskId+'">Conserver la valeur du serveur</button><p>Pour proposer une correction, conservez la valeur du serveur puis effectuez une nouvelle saisie autorisée.</p></article>').join("");
+  const pendingOperations=operations.filter(o=>o.state==="pending");
+  const section=(title,items,options={})=>items.length?'<section class="sync-review-section"><h3>'+title+' <span>'+items.length+'</span></h3>'+items.map(item=>operationReviewCard(item,operations,options)).join("")+'</section>':"";
+  document.querySelector("#syncProblems").innerHTML=section("Brouillons non partagés",operations.filter(o=>o.state==="draft"))
+    +section("Validées, en attente d’envoi",pendingOperations)
+    +section("Modifications à examiner",problems,{problem:true})
+    +(operations.length?'':'<p class="empty-state">Aucune modification en attente sur cet appareil.</p>')
+    +(drafts?'<p class="sync-review-help">Les brouillons ci-dessus ne seront partagés qu’après avoir utilisé le bouton « Valider » sur le plan.</p>':"");
 }
 function syncError(code) {
   return ({assignment_changed:"L'affectation a changé.",version_conflict:"Une autre modification a été enregistrée.",

@@ -148,6 +148,11 @@
           <button type="button" data-zone="bathroom">Salle de bain</button>
         </div>
 
+        <div class="task-pin-bar" id="taskPinBar">
+          <span><small>Tâche suivie</small><strong id="taskPinLabel">Aucune tâche sélectionnée</strong></span>
+          <button type="button" id="taskPinButton" aria-pressed="false" disabled>Garder fixe</button>
+        </div>
+
         <label class="task-search">
           <span class="sr-only">Rechercher une tâche</span>
           <input id="taskSearch" type="search" placeholder="Rechercher une tâche" autocomplete="off" />
@@ -281,7 +286,7 @@
       <p id="projectPhotoStatus" role="status"></p><div id="projectPhotoGallery" class="project-photo-gallery"></div>
     </section>
 
-<dialog id="syncDialog" class="project-dialog" aria-labelledby="syncTitle"><div class="access-form"><h2 id="syncTitle">Synchronisation</h2><p>Les saisies en attente restent sur cet appareil. Les modifications refusées demandent votre attention.</p><div id="syncProblems"></div><button type="button" id="retrySync" class="button primary">Synchroniser maintenant</button><button type="button" id="closeSync" class="button secondary">Fermer</button></div></dialog>
+<dialog id="syncDialog" class="project-dialog" aria-labelledby="syncTitle"><div class="access-form"><h2 id="syncTitle">Synchronisation</h2><p>Vérifiez ici le détail des brouillons avant de les valider. Les modifications refusées demandent votre attention.</p><div id="syncProblems"></div><button type="button" id="retrySync" class="button primary">Synchroniser maintenant</button><button type="button" id="closeSync" class="button secondary">Fermer</button></div></dialog>
     <dialog id="taskPhotoDialog" class="project-dialog" aria-labelledby="taskPhotoTitle"><div class="access-form">
       <h2 id="taskPhotoTitle">Photos</h2><p id="taskPhotoContext"></p>
       <form id="taskPhotoForm"><label class="field">Photo<input id="taskPhotoFile" type="file" accept="image/jpeg,image/png,image/webp" required></label>
