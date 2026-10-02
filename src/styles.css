@@ -858,7 +858,7 @@ body img.brand-mark { width:64px; height:54px; object-fit:contain; background:tr
 .workshop-tools { display:flex; flex-wrap:wrap; gap:6px; }
 .workshop-tools button { min-height:34px; padding:6px 9px; border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); font-size:12px; font-weight:750; }
 .workshop-tools button:hover,.workshop-tools button:focus-visible,.workshop-tools button.active { border-color:var(--green); background:var(--surface-soft); color:var(--green-dark); }
-.workshop-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.workshop-actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px; }
 .workshop-actions button { width:100%; }
 .dxf-workshop-canvas { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .workshop-canvas-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:72px; padding:10px 16px; border-bottom:1px solid var(--line); background:#fff; }

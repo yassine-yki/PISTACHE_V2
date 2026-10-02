@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { appendWorkshopLayers, detectClosedSpaces, sanitizeLayerName } from "../src/dxf-workshop.js";
+import { strFromU8, unzipSync } from "fflate";
+import { appendWorkshopLayers, buildDwgPackage, detectClosedSpaces, sanitizeLayerName } from "../src/dxf-workshop.js";
 
 type ParserConstructor = new () => { parseSync(source: string): { entities: Array<{ type: string; layer?: string; shape?: boolean; vertices?: unknown[] }> } | null };
 const DxfParser = createRequire(import.meta.url)("dxf-parser") as ParserConstructor;
@@ -47,6 +48,14 @@ test("sanitizes characters forbidden in AutoCAD layer names", () => {
   const longName=sanitizeLayerName("ESCALIERS ÉVACUATION — "+"revêtement antidérapant ".repeat(20));
   assert.ok(new TextEncoder().encode(longName).length<=120);
   assert.match(longName,/^ESCALIERS ÉVACUATION/);
+});
+
+test("prepares a local AutoCAD package for a real DWG conversion", () => {
+  const files=unzipSync(buildDwgPackage(emptyDxf,"Plan SS-1.dxf"));
+  assert.equal(strFromU8(files["Plan SS-1-calques.dxf"]),emptyDxf);
+  assert.match(strFromU8(files["convertir-en-dwg.ps1"]),/AutoCAD\.Application/);
+  assert.match(strFromU8(files["convertir-en-dwg.ps1"]),/SaveAs\(\$dwg, 64\)/);
+  assert.match(strFromU8(files["CONVERTIR_EN_DWG.cmd"]),/convertir-en-dwg\.ps1/);
 });
 
 test("automatically detects named closed spaces and their nearest levels", () => {
