@@ -158,15 +158,33 @@ export function appendWorkshopLayers(original:string,inputZones:Zone[],inputLaye
 }
 const dwgConverterScript=`$ErrorActionPreference = 'Stop'
 $folder = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dxf = Get-ChildItem -LiteralPath $folder -Filter '*.dxf' | Select-Object -First 1
-if (-not $dxf) { throw 'Aucun fichier DXF trouve dans ce dossier.' }
-$dwg = [System.IO.Path]::ChangeExtension($dxf.FullName, '.dwg')
+$manifestFile = Join-Path $folder 'delimitations.json'
+$manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
+$dxf = Get-Item -LiteralPath (Join-Path $folder $manifest.sourceFile)
+$dwg = Join-Path $folder $manifest.outputFile
 $document = $null
 try {
-  Write-Host 'Ouverture du plan dans AutoCAD...'
+  Write-Host 'Ouverture du DXF original dans AutoCAD...'
   $autocad = New-Object -ComObject AutoCAD.Application
   $autocad.Visible = $true
   $document = $autocad.Documents.Open($dxf.FullName, $false)
+  Write-Host 'Creation des calques et des contours...'
+  foreach ($layer in $manifest.layers) {
+    try { $cadLayer = $document.Layers.Item([string]$layer.name) }
+    catch { $cadLayer = $document.Layers.Add([string]$layer.name) }
+    if ($layer.colorIndex -ge 1 -and $layer.colorIndex -le 255) { $cadLayer.Color = [int16]$layer.colorIndex }
+  }
+  foreach ($zone in $manifest.zones) {
+    if ($zone.points.Count -lt 3) { continue }
+    [double[]]$coordinates = [double[]]::new($zone.points.Count * 2)
+    for ($index = 0; $index -lt $zone.points.Count; $index++) {
+      $coordinates[$index * 2] = [double]$zone.points[$index].x
+      $coordinates[$index * 2 + 1] = [double]$zone.points[$index].y
+    }
+    $polyline = $document.ModelSpace.AddLightWeightPolyline($coordinates)
+    $polyline.Closed = $true
+    $polyline.Layer = [string]$zone.layer
+  }
   Write-Host 'Creation du fichier DWG...'
   $document.SaveAs($dwg, 64)
   Write-Host "DWG cree : $dwg"
@@ -178,10 +196,14 @@ try {
 }
 `;
 const dwgConverterCommand=`@echo off\r\nchcp 65001 >nul\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0convertir-en-dwg.ps1"\r\nif errorlevel 1 (\r\n  echo.\r\n  echo La conversion a echoue. Verifiez qu AutoCAD est installe puis relancez ce fichier.\r\n) else (\r\n  echo.\r\n  echo Conversion terminee. Le fichier DWG se trouve dans ce dossier.\r\n)\r\npause\r\n`;
-export function buildDwgPackage(dxfContent:string,inputName:string){
+export function buildDwgPackage(dxfContent:string,inputName:string,inputZones:Zone[]=[],inputLayers:Array<{name:string;colorIndex?:number;trueColor?:number}>=[]){
   const base=(inputName.replace(/\.dxf$/i,"").replace(/[<>:\"/\\|?*]/g,"-").replace(/[ .]+$/g,"")||"plan")+"-calques";
-  const readme=`EXPORT DWG - PROJET MUC\r\n\r\n1. Extrayez tout le contenu de ce ZIP dans un dossier.\r\n2. Double-cliquez sur CONVERTIR_EN_DWG.cmd.\r\n3. AutoCAD s'ouvre et cree ${base}.dwg dans le meme dossier.\r\n\r\nAutoCAD pour Windows doit etre installe sur ce PC.\r\n`;
-  return zipSync({[`${base}.dxf`]:strToU8(dxfContent),"convertir-en-dwg.ps1":strToU8(dwgConverterScript),"CONVERTIR_EN_DWG.cmd":strToU8(dwgConverterCommand),"LISEZ-MOI.txt":strToU8(readme)},{level:6});
+  const sourceFile=`${base}-original.dxf`,definitions=new Map<string,{name:string;colorIndex:number;trueColor?:number}>();
+  for(const layer of inputLayers){const name=sanitizeLayerName(layer.name);definitions.set(name,{name,colorIndex:layer.colorIndex||3,trueColor:layer.trueColor});}
+  for(const zone of inputZones){const name=sanitizeLayerName(zone.layer),previous=definitions.get(name);definitions.set(name,{name,colorIndex:zone.colorIndex||previous?.colorIndex||3,trueColor:zone.trueColor??previous?.trueColor});}
+  const manifest={sourceFile,outputFile:`${base}.dwg`,layers:[...definitions.values()],zones:inputZones.map(zone=>({layer:sanitizeLayerName(zone.layer),points:zone.points.map(point=>({x:point.x,y:point.y}))}))};
+  const readme=`EXPORT DWG - PROJET MUC\r\n\r\n1. Extrayez tout le contenu de ce ZIP dans un dossier.\r\n2. Double-cliquez sur CONVERTIR_EN_DWG.cmd.\r\n3. AutoCAD ouvre le DXF original, ajoute les calques et contours, puis cree ${base}.dwg.\r\n\r\nAutoCAD pour Windows doit etre installe sur ce PC.\r\n`;
+  return zipSync({[sourceFile]:strToU8(dxfContent),"delimitations.json":strToU8(JSON.stringify(manifest,null,2)),"convertir-en-dwg.ps1":strToU8(dwgConverterScript),"CONVERTIR_EN_DWG.cmd":strToU8(dwgConverterCommand),"LISEZ-MOI.txt":strToU8(readme)},{level:6});
 }
 function download(content:string|Uint8Array,type:string,name:string){const link=document.createElement("a");link.href=URL.createObjectURL(new Blob([content as BlobPart],{type}));link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
 function detectMetadata(){
@@ -214,7 +236,7 @@ function initialize(){
   byId("workshopDeleteZone").addEventListener("click",()=>{if(zones.length){zones.pop();persist();render();message("Dernier contour supprimé.");}});
   byId("workshopClear").addEventListener("click",()=>{if(zones.length&&confirm("Supprimer tous les contours de ce brouillon ?")){zones=[];activePoints=[];persist();render();message("Tous les contours ont été supprimés.");}});
   byId("workshopZoneList").addEventListener("click",event=>{const button=(event.target as HTMLElement).closest<HTMLButtonElement>("[data-workshop-delete]");if(!button)return;zones.splice(Number(button.dataset.workshopDelete),1);persist();render();message("Contour supprimé.");});
-  byId("workshopExportDwg").addEventListener("click",()=>{if(!source)return message("Importez le DXF original avant de préparer le DWG.",true);if(!layers.length)return message("Aucun élément de légende n’a été reconnu.",true);try{const base=fileName.replace(/\.dxf$/i,"")||"plan",prepared=appendWorkshopLayers(source,zones,layers.map(name=>({name,colorIndex:layerColors[name]?.colorIndex,trueColor:layerColors[name]?.trueColor})));download(buildDwgPackage(prepared,fileName),"application/zip",`${base}-DWG.zip`);message("Paquet DWG prêt. Extrayez le ZIP puis double-cliquez sur CONVERTIR_EN_DWG.cmd.");}catch(error){message(error instanceof Error?error.message:String(error),true);}});
+  byId("workshopExportDwg").addEventListener("click",()=>{if(!source)return message("Importez le DXF original avant de préparer le DWG.",true);if(!layers.length)return message("Aucun élément de légende n’a été reconnu.",true);try{const base=fileName.replace(/\.dxf$/i,"")||"plan",definitions=layers.map(name=>({name,colorIndex:layerColors[name]?.colorIndex,trueColor:layerColors[name]?.trueColor}));download(buildDwgPackage(source,fileName,zones,definitions),"application/zip",`${base}-DWG.zip`);message("Paquet DWG prêt. AutoCAD ouvrira le plan original puis ajoutera directement les calques et contours.");}catch(error){message(error instanceof Error?error.message:String(error),true);}});
   byId("workshopExportDxf").addEventListener("click",()=>{if(!source)return message("Importez le DXF original avant l’export.",true);if(!layers.length)return message("Aucun élément de légende n’a été reconnu.",true);try{download(appendWorkshopLayers(source,zones,layers.map(name=>({name,colorIndex:layerColors[name]?.colorIndex,trueColor:layerColors[name]?.trueColor}))),"application/dxf",`${fileName.replace(/\.dxf$/i,"")}-calques.dxf`);message("DXF exporté avec les calques et contours détectés depuis la légende.");}catch(error){message(error instanceof Error?error.message:String(error),true);}});
   byId("workshopExportJson").addEventListener("click",()=>download(JSON.stringify({fileName,levels,layers,zones,layerColors},null,2),"application/json",`${fileName.replace(/\.dxf$/i,"")||"plan"}-delimitations.json`));
   const svg=byId<SVGSVGElement>("workshopSvg");svg.addEventListener("pointerdown",event=>{if(!dxf||!canEdit)return;if(tool==="pan"){panStart={x:event.clientX,y:event.clientY,viewX:view.x,viewY:view.y};svg.setPointerCapture(event.pointerId);return;}const point=svgPoint(event);if(!point)return;const threshold=Math.max(view.width,view.height)*.015;if(activePoints.length>=3&&Math.hypot(point.x-activePoints[0].x,point.y-activePoints[0].y)<threshold)return closeContour();activePoints.push(point);renderSvg();message(`${activePoints.length} point(s). Touchez le premier point ou « Fermer le contour ».`);});

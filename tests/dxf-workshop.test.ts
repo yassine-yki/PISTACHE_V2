@@ -51,9 +51,14 @@ test("sanitizes characters forbidden in AutoCAD layer names", () => {
 });
 
 test("prepares a local AutoCAD package for a real DWG conversion", () => {
-  const files=unzipSync(buildDwgPackage(emptyDxf,"Plan SS-1.dxf"));
-  assert.equal(strFromU8(files["Plan SS-1-calques.dxf"]),emptyDxf);
+  const files=unzipSync(buildDwgPackage(emptyDxf,"Plan SS-1.dxf",[{id:"zone",level:"SS-1",layer:"Carrelage 60/60",points:[{x:1,y:2},{x:3,y:2},{x:3,y:4}]}],[{name:"Carrelage 60/60",colorIndex:3}]));
+  assert.equal(strFromU8(files["Plan SS-1-calques-original.dxf"]),emptyDxf);
+  const manifest=JSON.parse(strFromU8(files["delimitations.json"]));
+  assert.equal(manifest.outputFile,"Plan SS-1-calques.dwg");
+  assert.equal(manifest.layers[0].name,"Carrelage 60-60");
+  assert.deepEqual(manifest.zones[0].points,[{x:1,y:2},{x:3,y:2},{x:3,y:4}]);
   assert.match(strFromU8(files["convertir-en-dwg.ps1"]),/AutoCAD\.Application/);
+  assert.match(strFromU8(files["convertir-en-dwg.ps1"]),/AddLightWeightPolyline/);
   assert.match(strFromU8(files["convertir-en-dwg.ps1"]),/SaveAs\(\$dwg, 64\)/);
   assert.match(strFromU8(files["CONVERTIR_EN_DWG.cmd"]),/convertir-en-dwg\.ps1/);
 });
